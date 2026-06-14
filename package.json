@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "fetch-data": "AMC_API_KEY=D6622011-F5ED-4171-A8E5-962FAEB44DF7 python3 scripts/fetch_showtimes.py"
+    "fetch-data": "python3 scripts/fetch_showtimes.py"
   },
   "dependencies": {
     "react": "^18.3.1",
