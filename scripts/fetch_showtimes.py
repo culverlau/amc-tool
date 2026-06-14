@@ -44,10 +44,13 @@ def fetch_showtimes(theater_id, date_str):
 
 
 def get_format(showtime):
+    codes = {a["code"].upper() for a in showtime.get("attributes", [])}
+    # IMAX checked first — attribute codes catch IMAX 70mm where premiumFormat says "70mm"
+    if "IMAX" in codes or "IMAX70MM" in codes:
+        return "IMAX at AMC"
     premium = (showtime.get("premiumFormat") or "").strip()
     if premium:
         return premium
-    codes = {a["code"].upper() for a in showtime.get("attributes", [])}
     if "DOLBY" in codes or "DOLBYATMOS" in codes:
         return "Dolby Cinema at AMC"
     if "LASERATAMC" in codes:
