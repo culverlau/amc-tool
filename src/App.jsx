@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import FilterBar from './components/FilterBar'
 import MovieCard from './components/MovieCard'
+import StarDialog from './components/StarDialog'
+import WatchlistPanel from './components/WatchlistPanel'
 
 const BASE = import.meta.env.BASE_URL
 const WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
@@ -8,29 +10,67 @@ const WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz
 export default function App() {
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('loading') // 'loading' | 'ok' | 'error'
-  const [watchlist, setWatchlist] = useState(new Set())
+  const [watchlistItems, setWatchlistItems] = useState([])
+  const [pendingShowtime, setPendingShowtime] = useState(null)
+  const [showWatchlist, setShowWatchlist] = useState(false)
+
+  const watchlist = useMemo(
+    () => new Set(watchlistItems.map(i => String(i.showtimeId))),
+    [watchlistItems]
+  )
 
   useEffect(() => {
     fetch(WATCHLIST_URL)
       .then(r => r.json())
-      .then(data => setWatchlist(new Set(data.map(item => String(item.showtimeId)))))
+      .then(items => setWatchlistItems(items.map(i => ({
+        showtimeId: String(i.showtimeId),
+        name: i.name || '',
+        rowMin: i.rowMin || 'E',
+        rowMax: i.rowMax || 'L',
+        seatMin: Number(i.seatMin) || 7,
+        seatMax: Number(i.seatMax) || 36,
+      }))))
       .catch(() => {})
   }, [])
 
-  function toggleStar(showtime) {
+  function handleToggleStar(showtime) {
     const id = String(showtime.showtimeId)
-    const wasStarred = watchlist.has(id)
-    setWatchlist(prev => {
-      const next = new Set(prev)
-      wasStarred ? next.delete(id) : next.add(id)
-      return next
-    })
-    const label = `${showtime.theaterName} · ${showtime.date} · ${showtime.time} · ${showtime.format}`
+    if (watchlist.has(id)) {
+      setWatchlistItems(prev => prev.filter(i => i.showtimeId !== id))
+      fetch(WATCHLIST_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove', showtimeId: id }),
+      })
+    } else {
+      setPendingShowtime(showtime)
+    }
+  }
+
+  function confirmStar(zone) {
+    const s = pendingShowtime
+    const id = String(s.showtimeId)
+    const name = `${s.theaterName} · ${s.date} · ${s.time} · ${s.format}`
+    const item = { showtimeId: id, name, ...zone }
+    setWatchlistItems(prev => [...prev, item])
+    setPendingShowtime(null)
     fetch(WATCHLIST_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: wasStarred ? 'remove' : 'add', showtimeId: id, name: label }),
+      body: JSON.stringify({ action: 'add', showtimeId: id, name, ...zone }),
+    })
+  }
+
+  function removeFromWatchlist(showtimeId) {
+    const id = String(showtimeId)
+    setWatchlistItems(prev => prev.filter(i => i.showtimeId !== id))
+    fetch(WATCHLIST_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove', showtimeId: id }),
     })
   }
 
@@ -105,11 +145,29 @@ export default function App() {
               Lincoln Square · 34th Street · Empire 25 · Kips Bay
             </p>
           </div>
-          {data?.lastUpdated && (
-            <p className="text-xs text-gray-600 text-right">
-              Updated {formatUpdated(data.lastUpdated)}
-            </p>
-          )}
+          <div className="flex flex-col items-end gap-2">
+            {data?.lastUpdated && (
+              <p className="text-xs text-gray-600">
+                Updated {formatUpdated(data.lastUpdated)}
+              </p>
+            )}
+            <button
+              onClick={() => setShowWatchlist(true)}
+              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                watchlistItems.length > 0
+                  ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                  : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+              }`}
+            >
+              <span>★</span>
+              <span>Watchlist</span>
+              {watchlistItems.length > 0 && (
+                <span className="bg-yellow-500/20 text-yellow-400 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                  {watchlistItems.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -159,7 +217,7 @@ export default function App() {
                 movie={movie}
                 filters={filters}
                 watchlist={watchlist}
-                onToggleStar={toggleStar}
+                onToggleStar={handleToggleStar}
               />
             ))}
           </div>
@@ -171,6 +229,22 @@ export default function App() {
           </p>
         )}
       </main>
+
+      {pendingShowtime && (
+        <StarDialog
+          showtime={pendingShowtime}
+          onConfirm={confirmStar}
+          onCancel={() => setPendingShowtime(null)}
+        />
+      )}
+
+      {showWatchlist && (
+        <WatchlistPanel
+          items={watchlistItems}
+          onRemove={removeFromWatchlist}
+          onClose={() => setShowWatchlist(false)}
+        />
+      )}
     </div>
   )
 }

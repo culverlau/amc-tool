@@ -10,10 +10,18 @@ WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR
 NTFY_URL = 'https://ntfy.sh/amc-nyc-culverlau-sniper'
 STATE_FILE = 'sniper_state.json'
 
-GOOD_ROWS = {'E', 'F', 'G', 'H', 'J', 'K', 'L'}
-GOOD_SEAT_MIN = 7
-GOOD_SEAT_MAX = 36
+DEFAULT_ROW_MIN = 'E'
+DEFAULT_ROW_MAX = 'L'
+DEFAULT_SEAT_MIN = 7
+DEFAULT_SEAT_MAX = 36
+SKIP_ROWS = {'I'}  # skipped in AMC theater numbering
 SKIP_LABEL_KEYWORDS = {'Wheelchair Space', 'Wheelchair Companion'}
+
+
+def build_good_rows(row_min, row_max):
+    start = ord(row_min.upper())
+    end = ord(row_max.upper())
+    return {chr(c) for c in range(start, end + 1)} - SKIP_ROWS
 
 
 def load_state():
@@ -53,7 +61,7 @@ def remove_from_watchlist(showtime_id):
         print(f'  Could not remove: {e}')
 
 
-def fetch_good_seats(page, showtime_id):
+def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
     url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
     try:
         page.goto(url, wait_until='domcontentloaded', timeout=20000)
@@ -77,9 +85,9 @@ def fetch_good_seats(page, showtime_id):
             num = int(name[1:])
         except ValueError:
             continue
-        if row not in GOOD_ROWS:
+        if row not in good_rows:
             continue
-        if num < GOOD_SEAT_MIN or num > GOOD_SEAT_MAX:
+        if num < seat_min or num > seat_max:
             continue
         if any(kw in (s['label'] or '') for kw in SKIP_LABEL_KEYWORDS):
             continue
@@ -140,7 +148,12 @@ def run():
                 state.pop(sid, None)
                 continue
 
-            current = fetch_good_seats(page, sid)
+            row_min = (item.get('rowMin') or DEFAULT_ROW_MIN).strip().upper()
+            row_max = (item.get('rowMax') or DEFAULT_ROW_MAX).strip().upper()
+            seat_min = int(item.get('seatMin') or DEFAULT_SEAT_MIN)
+            seat_max = int(item.get('seatMax') or DEFAULT_SEAT_MAX)
+            good_rows = build_good_rows(row_min, row_max)
+            current = fetch_good_seats(page, sid, good_rows, seat_min, seat_max)
             if current is None:
                 print('  Seat map unavailable — removing from watchlist')
                 remove_from_watchlist(sid)
