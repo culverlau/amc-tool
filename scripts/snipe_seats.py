@@ -1,0 +1,173 @@
+import re
+import requests
+import json
+import os
+import time
+from datetime import date
+from playwright.sync_api import sync_playwright
+
+WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
+NTFY_URL = 'https://ntfy.sh/amc-nyc-culverlau-sniper'
+STATE_FILE = 'sniper_state.json'
+
+GOOD_ROWS = {'E', 'F', 'G', 'H', 'J', 'K', 'L'}
+GOOD_SEAT_MIN = 7
+GOOD_SEAT_MAX = 36
+SKIP_LABEL_KEYWORDS = {'Wheelchair Space', 'Wheelchair Companion'}
+
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_state(state):
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f)
+
+
+def fetch_watchlist():
+    r = requests.get(WATCHLIST_URL, timeout=15)
+    data = r.json()
+    return [item for item in data if item.get('showtimeId')]
+
+
+def is_past(name):
+    m = re.search(r'(\d{4}-\d{2}-\d{2})', name)
+    if not m:
+        return False
+    return date.fromisoformat(m.group(1)) < date.today()
+
+
+def remove_from_watchlist(showtime_id):
+    try:
+        requests.post(
+            WATCHLIST_URL,
+            json={'action': 'remove', 'showtimeId': showtime_id},
+            timeout=15,
+        )
+        print('  Removed from watchlist')
+    except Exception as e:
+        print(f'  Could not remove: {e}')
+
+
+def fetch_good_seats(page, showtime_id):
+    url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
+    try:
+        page.goto(url, wait_until='domcontentloaded', timeout=20000)
+        page.wait_for_selector('[aria-label="Seat Selection Map"]', timeout=10000)
+    except Exception as e:
+        print(f'  Could not load seat map: {e}')
+        return None
+
+    seats = page.eval_on_selector_all(
+        '[aria-label="Seat Selection Map"] input[type="checkbox"]',
+        '''inputs => inputs
+            .filter(inp => !inp.disabled && inp.name)
+            .map(inp => ({ name: inp.name, label: inp.getAttribute("aria-label") }))'''
+    )
+
+    good = []
+    for s in seats:
+        name = s['name']
+        row = name[0].upper()
+        try:
+            num = int(name[1:])
+        except ValueError:
+            continue
+        if row not in GOOD_ROWS:
+            continue
+        if num < GOOD_SEAT_MIN or num > GOOD_SEAT_MAX:
+            continue
+        if any(kw in (s['label'] or '') for kw in SKIP_LABEL_KEYWORDS):
+            continue
+        good.append(name)
+
+    return sorted(good)
+
+
+def notify(title, body):
+    try:
+        requests.post(
+            NTFY_URL,
+            data=body.encode(),
+            headers={
+                'Title': title,
+                'Priority': 'high',
+                'Tags': 'movie_camera',
+            },
+            timeout=10,
+        )
+        print(f'  Notified: {title}')
+    except Exception as e:
+        print(f'  Notification failed: {e}')
+
+
+def run():
+    state = load_state()
+    watchlist = fetch_watchlist()
+
+    if not watchlist:
+        print('Watchlist empty — nothing to snipe')
+        return
+
+    # Deduplicate by showtimeId
+    seen_ids = set()
+    unique = []
+    for item in watchlist:
+        sid = str(item['showtimeId'])
+        if sid not in seen_ids:
+            seen_ids.add(sid)
+            unique.append(item)
+    watchlist = unique
+
+    print(f'Checking {len(watchlist)} starred showing(s)...')
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        for item in watchlist:
+            sid = str(item['showtimeId'])
+            name = item.get('name', sid)
+            print(f'\n{name}')
+
+            if is_past(name):
+                print('  Showtime has passed — removing from watchlist')
+                remove_from_watchlist(sid)
+                state.pop(sid, None)
+                continue
+
+            current = fetch_good_seats(page, sid)
+            if current is None:
+                print('  Seat map unavailable — removing from watchlist')
+                remove_from_watchlist(sid)
+                state.pop(sid, None)
+                continue
+
+            last_seen = set(state.get(sid, []))
+            current_set = set(current)
+            new_seats = current_set - last_seen
+
+            if new_seats:
+                seat_str = ' '.join(sorted(new_seats))
+                total = len(current_set)
+                send_title = name.split('·')[0].strip()
+                send_body = f'{total} good seat(s) open — NEW: {seat_str}'
+                print(f'  → {send_body}')
+                notify(send_title, send_body)
+            else:
+                print(f'  {len(current_set)} good seat(s), no change')
+
+            state[sid] = current
+            time.sleep(1)
+
+        browser.close()
+
+    save_state(state)
+
+
+if __name__ == '__main__':
+    run()

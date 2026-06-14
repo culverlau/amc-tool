@@ -1,0 +1,31 @@
+name: Seat Sniper
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  snipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore sniper state
+        uses: actions/cache@v4
+        with:
+          path: sniper_state.json
+          key: sniper-state-${{ github.run_id }}
+          restore-keys: sniper-state-
+
+      - name: Install dependencies
+        run: pip install requests playwright && python -m playwright install --with-deps chromium
+
+      - name: Run seat sniper
+        run: python scripts/snipe_seats.py
+
+      - name: Save sniper state
+        uses: actions/cache@v4
+        with:
+          path: sniper_state.json
+          key: sniper-state-${{ github.run_id }}

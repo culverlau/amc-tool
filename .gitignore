@@ -1,0 +1,7 @@
+node_modules/
+dist/
+public/data.json
+amc_api.txt
+sniper_state.json
+.env
+*.local
