@@ -5,11 +5,18 @@ import os
 import time
 from datetime import date, datetime, timedelta, timezone
 
-API_KEY = os.environ["AMC_API_KEY"]
+def _read_key_file(path):
+    try:
+        with open(path) as f:
+            return f.read().strip().splitlines()[-1].strip()
+    except Exception:
+        return ""
+
+API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file("amc_api.txt")
 BASE = "https://api.amctheatres.com"
 HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
-OMDB_KEY = os.environ.get("OMDB_API_KEY", "")
+OMDB_KEY = os.environ.get("OMDB_API_KEY") or _read_key_file("omdb_api.txt")
 
 THEATERS = {
     2116: "AMC Lincoln Square 13",
