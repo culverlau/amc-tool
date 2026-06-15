@@ -170,6 +170,14 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             {movie.genre && <span>{movie.genre.charAt(0) + movie.genre.slice(1).toLowerCase()}</span>}
             {movie.genre && runtimeStr(movie.runTime) && <span>·</span>}
             {runtimeStr(movie.runTime) && <span>{runtimeStr(movie.runTime)}</span>}
+            {movie.rtScore != null && (
+              <>
+                <span>·</span>
+                <span className={movie.rtScore >= 60 ? 'text-red-400' : 'text-yellow-600'}>
+                  🍅 {movie.rtScore}%
+                </span>
+              </>
+            )}
             {movie.languages.length > 0 && !movie.languages.includes('English') && (
               <>
                 <span>·</span>

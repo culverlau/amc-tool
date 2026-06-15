@@ -9,6 +9,8 @@ API_KEY = os.environ["AMC_API_KEY"]
 BASE = "https://api.amctheatres.com"
 HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
+OMDB_KEY = os.environ.get("OMDB_API_KEY", "")
+
 THEATERS = {
     2116: "AMC Lincoln Square 13",
     2120: "AMC 34th Street 14",
@@ -19,6 +21,27 @@ THEATERS = {
 def _parse_lang_from_attr_name(name):
     m = re.match(r'^(\w+)\s+(?:Spoken|Language)\b', name)
     return m.group(1) if m else None
+
+
+def fetch_rt_score(title):
+    if not OMDB_KEY:
+        return None
+    try:
+        r = requests.get(
+            "https://www.omdbapi.com/",
+            params={"t": title, "apikey": OMDB_KEY},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        for rating in data.get("Ratings", []):
+            if rating.get("Source") == "Rotten Tomatoes":
+                pct = rating["Value"].rstrip("%")
+                return int(pct) if pct.isdigit() else None
+    except Exception:
+        pass
+    return None
 
 
 def fetch_movie(movie_id):
@@ -101,6 +124,8 @@ def run():
                 if mid not in movies:
                     movie_api = fetch_movie(mid)
                     time.sleep(0.1)
+                    rt_score = fetch_rt_score(name)
+                    time.sleep(0.1)
                     movies[mid] = {
                         "id": mid,
                         "name": name,
@@ -113,7 +138,7 @@ def run():
                         "isFathom": False,
                         "isWorldCup": is_world_cup,
                         "availableForAList": movie_api.get("availableForAList", True),
-                        "score": movie_api.get("score", 0),
+                        "rtScore": rt_score,
                         "screenings": [],
                     }
 
