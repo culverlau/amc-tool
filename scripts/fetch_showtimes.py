@@ -8,9 +8,14 @@ from datetime import date, datetime, timedelta, timezone
 def _read_key_file(path):
     try:
         with open(path) as f:
-            return f.read().strip().splitlines()[-1].strip()
+            for line in f:
+                line = line.strip()
+                # A key has no spaces, isn't a URL, and is at least 8 chars
+                if line and ' ' not in line and not line.startswith('http') and len(line) >= 8:
+                    return line
     except Exception:
-        return ""
+        pass
+    return ""
 
 API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file("amc_api.txt")
 BASE = "https://api.amctheatres.com"
