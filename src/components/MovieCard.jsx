@@ -16,7 +16,6 @@ function formatTime(timeStr) {
 }
 
 function formatDateLabel(dateStr) {
-  // Parse as local date to avoid timezone shifts
   const [y, mo, d] = dateStr.split('-').map(Number)
   const date = new Date(y, mo - 1, d)
   return {
@@ -51,10 +50,10 @@ function runtimeStr(minutes) {
 }
 
 export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
-  const [selectedDate, setSelectedDate] = useState(null)
+  // selection: null | { type: 'date', key: string } | { type: 'theater', key: number }
+  const [selection, setSelection] = useState(null)
   const [imgError, setImgError] = useState(false)
 
-  // Build date-grouped screenings respecting active filters
   const byDate = {}
   for (const s of movie.screenings) {
     if (filters.theaters.length > 0 && !filters.theaters.includes(String(s.theaterId))) continue
@@ -66,12 +65,75 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
   const dates = Object.keys(byDate).sort()
   if (dates.length === 0) return null
 
-  const activeDateValid = selectedDate && byDate[selectedDate]
-  const activeDate = activeDateValid ? selectedDate : null
+  const theaterIds = THEATER_ORDER.filter(id =>
+    Object.values(byDate).some(shows => shows.some(s => s.theaterId === id))
+  )
 
   function handleDateClick(date) {
-    setSelectedDate(prev => (prev === date ? null : date))
+    setSelection(prev =>
+      prev?.type === 'date' && prev.key === date ? null : { type: 'date', key: date }
+    )
   }
+
+  function handleTheaterClick(theaterId) {
+    setSelection(prev =>
+      prev?.type === 'theater' && prev.key === theaterId ? null : { type: 'theater', key: theaterId }
+    )
+  }
+
+  function renderShowtime(s) {
+    const fmtShort = formatShort(s.format)
+    const isLincolnImax = s.theaterId === 2116 && s.format.includes('IMAX')
+    const starred = isLincolnImax && watchlist?.has(String(s.showtimeId))
+    const starBtn = isLincolnImax ? (
+      <button
+        key={`star-${s.showtimeId}`}
+        onClick={() => onToggleStar?.({ ...s, movieName: movie.name })}
+        title={starred ? 'Remove from sniper watchlist' : 'Add to sniper watchlist'}
+        className={`text-base leading-none transition-colors ${starred ? 'text-yellow-400' : 'text-gray-700 hover:text-gray-500'}`}
+      >
+        {starred ? '★' : '☆'}
+      </button>
+    ) : null
+
+    if (s.isSoldOut) {
+      return (
+        <div key={s.showtimeId} className="flex items-center gap-1">
+          <span className="text-sm px-3 py-1.5 rounded-lg bg-gray-800/50 text-gray-600 line-through cursor-not-allowed inline-flex items-center gap-1.5">
+            {formatTime(s.time)}
+            {fmtShort && <span className="text-[10px] font-medium text-gray-700">{fmtShort}</span>}
+          </span>
+          {starBtn}
+        </div>
+      )
+    }
+    return (
+      <div key={s.showtimeId} className="flex items-center gap-1">
+        <a
+          href={s.purchaseUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`text-sm px-3 py-1.5 rounded-lg transition-all inline-flex items-center gap-1.5 ${
+            s.isAlmostSoldOut
+              ? 'bg-orange-900/40 text-orange-300 border border-orange-800/60 hover:bg-orange-800/50'
+              : 'bg-gray-800 text-white hover:bg-red-700 hover:shadow-md hover:shadow-red-900/30'
+          }`}
+        >
+          {formatTime(s.time)}
+          {fmtShort && (
+            <span className={`text-[10px] font-medium ${s.isAlmostSoldOut ? 'text-orange-400' : 'text-gray-400'}`}>
+              {fmtShort}
+            </span>
+          )}
+          {s.isAlmostSoldOut && <span className="text-[10px] text-orange-400">!</span>}
+        </a>
+        {starBtn}
+      </div>
+    )
+  }
+
+  const activeDate = selection?.type === 'date' ? selection.key : null
+  const activeTheater = selection?.type === 'theater' ? selection.key : null
 
   return (
     <article className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800/60 hover:border-gray-700 transition-colors">
@@ -116,7 +178,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             )}
           </div>
 
-          {/* Format badges + Fathom tag */}
+          {/* Format badges */}
           <div className="flex flex-wrap gap-1 mt-2">
             {movie.formats.filter(f => f !== 'Standard').map(fmt => (
               <span
@@ -158,10 +220,32 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
               )
             })}
           </div>
+
+          {/* Theater pills */}
+          {theaterIds.length > 1 && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {theaterIds.map(id => {
+                const isSelected = activeTheater === id
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleTheaterClick(id)}
+                    className={`text-xs px-2.5 py-1.5 rounded-lg transition-all font-medium ${
+                      isSelected
+                        ? 'bg-blue-700 text-white shadow-lg shadow-blue-900/40'
+                        : 'bg-gray-800/60 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+                    }`}
+                  >
+                    {THEATER_SHORT[id]}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Expanded showtime panel */}
+      {/* Expanded: by date — shows theaters for that date */}
       {activeDate && (
         <div className="border-t border-gray-800 bg-gray-900/50 px-4 py-4">
           <div className="space-y-4">
@@ -176,56 +260,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
                     {THEATER_SHORT[theaterId]}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {shows.map(s => {
-                      const fmtShort = formatShort(s.format)
-                      const isLincolnImax = s.theaterId === 2116 && s.format.includes('IMAX')
-                      const starred = isLincolnImax && watchlist?.has(String(s.showtimeId))
-                      const starBtn = isLincolnImax ? (
-                        <button
-                          key={`star-${s.showtimeId}`}
-                          onClick={() => onToggleStar?.(s)}
-                          title={starred ? 'Remove from sniper watchlist' : 'Add to sniper watchlist'}
-                          className={`text-base leading-none transition-colors ${starred ? 'text-yellow-400' : 'text-gray-700 hover:text-gray-500'}`}
-                        >
-                          {starred ? '★' : '☆'}
-                        </button>
-                      ) : null
-                      if (s.isSoldOut) {
-                        return (
-                          <div key={s.showtimeId} className="flex items-center gap-1">
-                            <span className="text-sm px-3 py-1.5 rounded-lg bg-gray-800/50 text-gray-600 line-through cursor-not-allowed">
-                              {formatTime(s.time)}
-                            </span>
-                            {starBtn}
-                          </div>
-                        )
-                      }
-                      return (
-                        <div key={s.showtimeId} className="flex items-center gap-1">
-                          <a
-                            href={s.purchaseUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`text-sm px-3 py-1.5 rounded-lg transition-all inline-flex items-center gap-1.5 ${
-                              s.isAlmostSoldOut
-                                ? 'bg-orange-900/40 text-orange-300 border border-orange-800/60 hover:bg-orange-800/50'
-                                : 'bg-gray-800 text-white hover:bg-red-700 hover:shadow-md hover:shadow-red-900/30'
-                            }`}
-                          >
-                            {formatTime(s.time)}
-                            {fmtShort && (
-                              <span className={`text-[10px] font-medium ${s.isAlmostSoldOut ? 'text-orange-400' : 'text-gray-400'}`}>
-                                {fmtShort}
-                              </span>
-                            )}
-                            {s.isAlmostSoldOut && (
-                              <span className="text-[10px] text-orange-400">!</span>
-                            )}
-                          </a>
-                          {starBtn}
-                        </div>
-                      )
-                    })}
+                    {shows.map(s => renderShowtime(s))}
                   </div>
                 </div>
               )
@@ -233,6 +268,38 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
           </div>
         </div>
       )}
+
+      {/* Expanded: by theater — shows all dates for that theater */}
+      {activeTheater && (() => {
+        const dateRows = dates
+          .map(date => ({
+            date,
+            shows: byDate[date]
+              .filter(s => s.theaterId === activeTheater)
+              .sort((a, b) => a.time.localeCompare(b.time)),
+          }))
+          .filter(({ shows }) => shows.length > 0)
+
+        return (
+          <div className="border-t border-gray-800 bg-gray-900/50 px-4 py-4">
+            <div className="space-y-3">
+              {dateRows.map(({ date, shows }) => {
+                const { weekday, short } = formatDateLabel(date)
+                return (
+                  <div key={date} className="flex gap-3 items-start">
+                    <div className="text-xs text-gray-500 w-16 flex-shrink-0 pt-1.5 font-medium">
+                      <span className="opacity-70">{weekday} </span>{short}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {shows.map(s => renderShowtime(s))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
     </article>
   )
 }

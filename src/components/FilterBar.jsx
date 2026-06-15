@@ -138,7 +138,7 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
         />
 
         <Toggle
-          label="Hide Events"
+          label="Hide Fathom"
           checked={filters.hideEvents}
           onChange={v => onChange({ ...filters, hideEvents: v })}
         />

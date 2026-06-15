@@ -1,19 +1,23 @@
-export default function WatchlistPanel({ items, onRemove, onClose }) {
+export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClose }) {
   function parseLabel(name) {
-    const parts = name.split(' · ')
+    const parts = (name || '').split(' · ')
+    // New format: movieName · theaterName · date · time · format (5 parts)
+    // Old format: theaterName · date · time · format (4 parts)
+    const offset = parts.length >= 5 ? 1 : 0
     if (parts.length >= 4) {
-      const theater = parts[0].replace(/^AMC /, '')
-      const [y, mo, d] = parts[1].split('-').map(Number)
+      const movieName = offset ? parts[0] : ''
+      const theater = parts[offset].replace(/^AMC /, '')
+      const [y, mo, d] = parts[offset + 1].split('-').map(Number)
       const date = new Date(y, mo - 1, d)
       const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-      const [h, m] = parts[2].split(':').map(Number)
+      const [h, m] = parts[offset + 2].split(':').map(Number)
       const ampm = h >= 12 ? 'PM' : 'AM'
       const h12 = h % 12 || 12
       const timeStr = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`
-      const format = parts[3].replace(' at AMC', '')
-      return { theater, dateStr, timeStr, format }
+      const format = parts[offset + 3].replace(' at AMC', '')
+      return { movieName, theater, dateStr, timeStr, format }
     }
-    return { theater: name, dateStr: '', timeStr: '', format: '' }
+    return null
   }
 
   return (
@@ -47,14 +51,23 @@ export default function WatchlistPanel({ items, onRemove, onClose }) {
             </div>
           ) : (
             items.map(item => {
-              const { theater, dateStr, timeStr, format } = parseLabel(item.name)
+              const parsed = parseLabel(item.name)
+              const movieName = movieNames[String(item.showtimeId)] || parsed?.movieName || ''
               return (
                 <div key={item.showtimeId} className="bg-gray-800 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-white text-sm font-medium">{theater}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">
-                      {dateStr} · {timeStr} · {format}
-                    </p>
+                    {parsed ? (
+                      <>
+                        {movieName && (
+                          <p className="text-white text-sm font-medium leading-tight">{movieName}</p>
+                        )}
+                        <p className={`text-xs mt-0.5 ${movieName ? 'text-gray-400' : 'text-white font-medium'}`}>
+                          {parsed.theater} · {parsed.dateStr} · {parsed.timeStr} · {parsed.format}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-gray-400 text-sm">Showing #{item.showtimeId}</p>
+                    )}
                     <p className="text-gray-600 text-xs mt-1">
                       Rows {item.rowMin}–{item.rowMax} · Seats {item.seatMin}–{item.seatMax}
                     </p>

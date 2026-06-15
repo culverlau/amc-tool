@@ -19,17 +19,40 @@ export default function App() {
     [watchlistItems]
   )
 
+  // showtimeId → movie name, built from data.json for watchlist display
+  const showtimeMovieNames = useMemo(() => {
+    if (!data) return {}
+    const map = {}
+    for (const movie of data.movies) {
+      for (const s of movie.screenings) {
+        map[String(s.showtimeId)] = movie.name
+      }
+    }
+    return map
+  }, [data])
+
   useEffect(() => {
     fetch(WATCHLIST_URL)
       .then(r => r.json())
-      .then(items => setWatchlistItems(items.map(i => ({
-        showtimeId: String(i.showtimeId),
-        name: i.name || '',
-        rowMin: i.rowMin || 'E',
-        rowMax: i.rowMax || 'L',
-        seatMin: Number(i.seatMin) || 7,
-        seatMax: Number(i.seatMax) || 36,
-      }))))
+      .then(items => {
+        const seen = new Set()
+        const unique = []
+        for (const i of items) {
+          const id = String(i.showtimeId)
+          if (!seen.has(id)) {
+            seen.add(id)
+            unique.push({
+              showtimeId: id,
+              name: i.name || '',
+              rowMin: i.rowMin || 'E',
+              rowMax: i.rowMax || 'L',
+              seatMin: Number(i.seatMin) || 7,
+              seatMax: Number(i.seatMax) || 36,
+            })
+          }
+        }
+        setWatchlistItems(unique)
+      })
       .catch(() => {})
   }, [])
 
@@ -51,7 +74,7 @@ export default function App() {
   function confirmStar(zone) {
     const s = pendingShowtime
     const id = String(s.showtimeId)
-    const name = `${s.theaterName} · ${s.date} · ${s.time} · ${s.format}`
+    const name = `${s.movieName || ''} · ${s.theaterName} · ${s.date} · ${s.time} · ${s.format}`
     const item = { showtimeId: id, name, ...zone }
     setWatchlistItems(prev => [...prev, item])
     setPendingShowtime(null)
@@ -80,7 +103,7 @@ export default function App() {
     languages: [],
     search: '',
     hideWorldCup: true,
-    hideEvents: true,
+    hideEvents: false,
     hideNoAList: true,
   })
 
@@ -241,6 +264,7 @@ export default function App() {
       {showWatchlist && (
         <WatchlistPanel
           items={watchlistItems}
+          movieNames={showtimeMovieNames}
           onRemove={removeFromWatchlist}
           onClose={() => setShowWatchlist(false)}
         />
