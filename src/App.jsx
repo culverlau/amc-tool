@@ -174,6 +174,14 @@ export default function App() {
                 Updated {formatUpdated(data.lastUpdated)}
               </p>
             )}
+            <a
+              href="https://docs.google.com/spreadsheets/d/1H-yeRzrIi9p7y8VD09ioNSdBHxEeV-Xl55u5rIJRX0k/edit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+            >
+              Sheets ↗
+            </a>
             <button
               onClick={() => setShowWatchlist(true)}
               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${

@@ -178,22 +178,6 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
                 </span>
               </>
             )}
-            {movie.scores?.mc != null && (
-              <>
-                <span>·</span>
-                <span className={movie.scores.mc >= 61 ? 'text-green-400' : 'text-yellow-600'}>
-                  MC {movie.scores.mc}
-                </span>
-              </>
-            )}
-            {movie.scores?.imdb != null && (
-              <>
-                <span>·</span>
-                <span className="text-yellow-400">
-                  IMDb {movie.scores.imdb}
-                </span>
-              </>
-            )}
             <>
               <span>·</span>
               <a

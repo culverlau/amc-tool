@@ -21,7 +21,8 @@ API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file("amc_api.txt")
 BASE = "https://api.amctheatres.com"
 HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
-OMDB_KEY = os.environ.get("OMDB_API_KEY") or _read_key_file("omdb_api.txt")
+APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
+RT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'}
 
 THEATERS = {
     2116: "AMC Lincoln Square 13",
@@ -35,41 +36,52 @@ def _parse_lang_from_attr_name(name):
     return m.group(1) if m else None
 
 
-def fetch_scores(title, year=None):
-    if not OMDB_KEY:
-        return {}
+def scrape_rt_score(title):
     try:
-        params = {"t": title, "apikey": OMDB_KEY}
-        if year:
-            params["y"] = year
-        r = requests.get("https://www.omdbapi.com/", params=params, timeout=10)
-        if r.status_code != 200:
-            return {}
-        data = r.json()
-        if data.get("Response") == "False":
-            return {}
-        scores = {}
-        for rating in data.get("Ratings", []):
-            source = rating.get("Source")
-            value = rating.get("Value", "")
-            if source == "Rotten Tomatoes":
-                pct = value.rstrip("%")
-                if pct.isdigit():
-                    scores["rt"] = int(pct)
-            elif source == "Metacritic":
-                mc = value.split("/")[0]
-                if mc.isdigit():
-                    scores["mc"] = int(mc)
-            elif source == "Internet Movie Database":
-                imdb = value.split("/")[0]
-                try:
-                    scores["imdb"] = float(imdb)
-                except ValueError:
-                    pass
-        return scores
+        r = requests.get(
+            'https://www.rottentomatoes.com/search',
+            params={'search': title},
+            headers=RT_HEADERS,
+            timeout=10,
+        )
+        blocks = re.findall(r'tomatometer-score="(\d+)".*?alt="([^"]+)"', r.text, re.DOTALL)
+        title_lower = title.lower()
+        for score, found_title in blocks:
+            if found_title.lower() == title_lower:
+                return int(score)
     except Exception:
         pass
-    return {}
+    return None
+
+
+def fetch_rt_cache():
+    try:
+        r = requests.get(APPS_SCRIPT_URL, params={'sheet': 'scores'}, timeout=15)
+        return {item['amcId']: item.get('rtScore') for item in r.json()}
+    except Exception:
+        return {}
+
+
+def upsert_rt_score(amc_id, title, rt_score, now_str):
+    try:
+        requests.post(
+            APPS_SCRIPT_URL,
+            json={'action': 'upsertScore', 'amcId': str(amc_id), 'title': title, 'rtScore': rt_score, 'fetchedAt': now_str},
+            timeout=15,
+        )
+    except Exception as e:
+        print(f'Warning: could not upsert RT score for {title}: {e}')
+
+
+def cleanup_rt_cache(amc_ids):
+    try:
+        requests.post(
+            APPS_SCRIPT_URL,
+            json={'action': 'cleanupScores', 'amcIds': [str(i) for i in amc_ids]},
+            timeout=15,
+        )
+    except Exception as e:
+        print(f'Warning: could not cleanup RT cache: {e}')
 
 
 def fetch_movie(movie_id):
@@ -128,6 +140,11 @@ def run():
     movies = {}
     today = date.today()
     consecutive_empty = 0
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    print("Fetching RT score cache...")
+    rt_cache = fetch_rt_cache()
+    print(f"  {len(rt_cache)} cached scores")
 
     for offset in range(90):
         d = today + timedelta(days=offset)
@@ -152,9 +169,16 @@ def run():
                 if mid not in movies:
                     movie_api = fetch_movie(mid)
                     time.sleep(0.1)
-                    release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
-                    scores = fetch_scores(name, year=release_year)
-                    time.sleep(0.1)
+
+                    amc_id_str = str(mid)
+                    if amc_id_str in rt_cache:
+                        rt_score = rt_cache[amc_id_str]
+                    else:
+                        rt_score = scrape_rt_score(name)
+                        upsert_rt_score(mid, name, rt_score, now_str)
+                        rt_cache[amc_id_str] = rt_score
+                        time.sleep(1)
+
                     movies[mid] = {
                         "id": mid,
                         "name": name,
@@ -167,7 +191,7 @@ def run():
                         "isFathom": False,
                         "isWorldCup": is_world_cup,
                         "availableForAList": movie_api.get("availableForAList", True),
-                        "scores": scores,
+                        "scores": {"rt": rt_score} if rt_score is not None else {},
                         "screenings": [],
                     }
 
@@ -196,6 +220,9 @@ def run():
                 break
         else:
             consecutive_empty = 0
+
+    print("Cleaning up stale RT cache entries...")
+    cleanup_rt_cache(list(movies.keys()))
 
     # Convert sets to sorted lists
     for m in movies.values():
