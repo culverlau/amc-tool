@@ -191,15 +191,17 @@ def run():
                     amc_id_str = str(mid)
                     is_fathom = "EVENT" in attr_codes
                     release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
+                    cached = rt_cache.get(amc_id_str)
                     if is_world_cup or is_fathom:
                         rt_score, rt_slug = None, None
-                    elif amc_id_str in rt_cache:
-                        rt_score = rt_cache[amc_id_str]['rtScore']
-                        rt_slug = rt_cache[amc_id_str]['rtSlug']
+                    elif cached and cached.get('rtScore') is not None:
+                        rt_score = cached['rtScore']
+                        rt_slug = cached.get('rtSlug')
                     else:
                         rt_score, rt_slug = scrape_rt(name, release_year)
-                        upsert_rt_score(mid, name, rt_score, rt_slug, now_str)
-                        rt_cache[amc_id_str] = {'rtScore': rt_score, 'rtSlug': rt_slug}
+                        if rt_score is not None:
+                            upsert_rt_score(mid, name, rt_score, rt_slug, now_str)
+                            rt_cache[amc_id_str] = {'rtScore': rt_score, 'rtSlug': rt_slug}
                         time.sleep(1)
 
                     movies[mid] = {
