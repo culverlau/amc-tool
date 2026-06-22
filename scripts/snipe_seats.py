@@ -1,4 +1,5 @@
 import re
+import random
 import requests
 import json
 import os
@@ -68,6 +69,10 @@ def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
         page.wait_for_selector('[aria-label="Seat Selection Map"]', timeout=10000)
     except Exception as e:
         print(f'  Could not load seat map: {e}')
+        print(f'  Page URL: {page.url}')
+        print(f'  Page title: {page.title()}')
+        os.makedirs('failure_screenshots', exist_ok=True)
+        page.screenshot(path=f'failure_screenshots/{showtime_id}.png')
         return None
 
     seats = page.eval_on_selector_all(
@@ -134,8 +139,10 @@ def run():
     print(f'Checking {len(watchlist)} starred showing(s)...')
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        page = browser.new_page()
+        browser = pw.chromium.launch(
+            headless=True,
+            args=['--disable-blink-features=AutomationControlled'],
+        )
 
         for item in watchlist:
             sid = str(item['showtimeId'])
@@ -153,7 +160,14 @@ def run():
             seat_min = int(item.get('seatMin') or DEFAULT_SEAT_MIN)
             seat_max = int(item.get('seatMax') or DEFAULT_SEAT_MAX)
             good_rows = build_good_rows(row_min, row_max)
+
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            )
+            page = context.new_page()
             current = fetch_good_seats(page, sid, good_rows, seat_min, seat_max)
+            context.close()
+
             if current is None:
                 print('  Seat map unavailable — skipping')
                 continue
@@ -173,7 +187,7 @@ def run():
                 print(f'  {len(current_set)} good seat(s), no change')
 
             state[sid] = current
-            time.sleep(1)
+            time.sleep(random.uniform(3, 8))
 
         browser.close()
 

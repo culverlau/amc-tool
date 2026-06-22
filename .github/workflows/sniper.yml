@@ -22,6 +22,14 @@ jobs:
       - name: Run seat sniper
         run: python scripts/snipe_seats.py
 
+      - name: Upload failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: failure_screenshots/
+          if-no-files-found: ignore
+
       - name: Save sniper state
         uses: actions/cache@v4
         with:
