@@ -1,9 +1,8 @@
-name: Update Data & Deploy
+name: Deploy
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
-  workflow_dispatch:          # manual trigger from GitHub UI
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -24,18 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Fetch showtimes
-        env:
-          AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
-          OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      - name: Fetch existing data.json from live site
         run: |
-          pip install requests
-          python scripts/fetch_showtimes.py
+          mkdir -p public
+          curl -f https://culverlau.github.io/amc-tool/data.json -o public/data.json || echo '{"movies":[],"theaters":{},"lastUpdated":""}' > public/data.json
 
       - name: Set up Node
         uses: actions/setup-node@v4
