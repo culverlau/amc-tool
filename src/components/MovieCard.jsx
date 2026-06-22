@@ -170,11 +170,27 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             {movie.genre && <span>{movie.genre.charAt(0) + movie.genre.slice(1).toLowerCase()}</span>}
             {movie.genre && runtimeStr(movie.runTime) && <span>·</span>}
             {runtimeStr(movie.runTime) && <span>{runtimeStr(movie.runTime)}</span>}
-            {movie.rtScore != null && (
+            {movie.scores?.rt != null && (
               <>
                 <span>·</span>
-                <span className={movie.rtScore >= 60 ? 'text-red-400' : 'text-yellow-600'}>
-                  🍅 {movie.rtScore}%
+                <span className={movie.scores.rt >= 60 ? 'text-red-400' : 'text-yellow-600'}>
+                  🍅 {movie.scores.rt}%
+                </span>
+              </>
+            )}
+            {movie.scores?.mc != null && (
+              <>
+                <span>·</span>
+                <span className={movie.scores.mc >= 61 ? 'text-green-400' : 'text-yellow-600'}>
+                  MC {movie.scores.mc}
+                </span>
+              </>
+            )}
+            {movie.scores?.imdb != null && (
+              <>
+                <span>·</span>
+                <span className="text-yellow-400">
+                  IMDb {movie.scores.imdb}
                 </span>
               </>
             )}

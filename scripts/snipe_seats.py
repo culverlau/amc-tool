@@ -1,5 +1,4 @@
 import re
-import random
 import requests
 import json
 import os
@@ -66,6 +65,9 @@ def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
     url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
     try:
         page.goto(url, wait_until='domcontentloaded', timeout=20000)
+        if page.locator('text="This showtime is sold out"').count() > 0:
+            print('  Sold out')
+            return []
         page.wait_for_selector('[aria-label="Seat Selection Map"]', timeout=10000)
     except Exception as e:
         print(f'  Could not load seat map: {e}')
@@ -187,7 +189,7 @@ def run():
                 print(f'  {len(current_set)} good seat(s), no change')
 
             state[sid] = current
-            time.sleep(random.uniform(3, 8))
+            time.sleep(2)
 
         browser.close()
 

@@ -35,25 +35,41 @@ def _parse_lang_from_attr_name(name):
     return m.group(1) if m else None
 
 
-def fetch_rt_score(title):
+def fetch_scores(title, year=None):
     if not OMDB_KEY:
-        return None
+        return {}
     try:
-        r = requests.get(
-            "https://www.omdbapi.com/",
-            params={"t": title, "apikey": OMDB_KEY},
-            timeout=10,
-        )
+        params = {"t": title, "apikey": OMDB_KEY}
+        if year:
+            params["y"] = year
+        r = requests.get("https://www.omdbapi.com/", params=params, timeout=10)
         if r.status_code != 200:
-            return None
+            return {}
         data = r.json()
+        if data.get("Response") == "False":
+            return {}
+        scores = {}
         for rating in data.get("Ratings", []):
-            if rating.get("Source") == "Rotten Tomatoes":
-                pct = rating["Value"].rstrip("%")
-                return int(pct) if pct.isdigit() else None
+            source = rating.get("Source")
+            value = rating.get("Value", "")
+            if source == "Rotten Tomatoes":
+                pct = value.rstrip("%")
+                if pct.isdigit():
+                    scores["rt"] = int(pct)
+            elif source == "Metacritic":
+                mc = value.split("/")[0]
+                if mc.isdigit():
+                    scores["mc"] = int(mc)
+            elif source == "Internet Movie Database":
+                imdb = value.split("/")[0]
+                try:
+                    scores["imdb"] = float(imdb)
+                except ValueError:
+                    pass
+        return scores
     except Exception:
         pass
-    return None
+    return {}
 
 
 def fetch_movie(movie_id):
@@ -136,7 +152,8 @@ def run():
                 if mid not in movies:
                     movie_api = fetch_movie(mid)
                     time.sleep(0.1)
-                    rt_score = fetch_rt_score(name)
+                    release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
+                    scores = fetch_scores(name, year=release_year)
                     time.sleep(0.1)
                     movies[mid] = {
                         "id": mid,
@@ -150,7 +167,7 @@ def run():
                         "isFathom": False,
                         "isWorldCup": is_world_cup,
                         "availableForAList": movie_api.get("availableForAList", True),
-                        "rtScore": rt_score,
+                        "scores": scores,
                         "screenings": [],
                     }
 
