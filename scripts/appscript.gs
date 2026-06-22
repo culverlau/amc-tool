@@ -8,7 +8,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
     var data = sheet.getDataRange().getValues();
     var result = data.slice(1).map(function(row) {
-      return { amcId: String(row[0]), title: row[1] || '', rtScore: row[2] === '' ? null : Number(row[2]), fetchedAt: row[3] || '' };
+      return { amcId: String(row[0]), title: row[1] || '', rtScore: row[2] === '' ? null : Number(row[2]), rtSlug: row[3] || '', fetchedAt: row[4] || '' };
     }).filter(function(item) { return item.amcId; });
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
@@ -31,11 +31,11 @@ function doPost(e) {
     var data = sheet.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(body.amcId)) {
-        sheet.getRange(i + 1, 1, 1, 4).setValues([[body.amcId, body.title, body.rtScore, body.fetchedAt]]);
+        sheet.getRange(i + 1, 1, 1, 5).setValues([[body.amcId, body.title, body.rtScore, body.rtSlug || '', body.fetchedAt]]);
         return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
       }
     }
-    sheet.appendRow([body.amcId, body.title, body.rtScore, body.fetchedAt]);
+    sheet.appendRow([body.amcId, body.title, body.rtScore, body.rtSlug || '', body.fetchedAt]);
     return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
   }
 

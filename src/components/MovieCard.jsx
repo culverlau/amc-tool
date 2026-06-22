@@ -167,9 +167,19 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-gray-500">
-            {movie.genre && <span>{movie.genre.charAt(0) + movie.genre.slice(1).toLowerCase()}</span>}
-            {movie.genre && runtimeStr(movie.runTime) && <span>·</span>}
-            {runtimeStr(movie.runTime) && <span>{runtimeStr(movie.runTime)}</span>}
+            {movie.releaseYear && <span>{movie.releaseYear}</span>}
+            {movie.genre && (
+              <>
+                {movie.releaseYear && <span>·</span>}
+                <span>{movie.genre.charAt(0) + movie.genre.slice(1).toLowerCase()}</span>
+              </>
+            )}
+            {runtimeStr(movie.runTime) && (
+              <>
+                {(movie.releaseYear || movie.genre) && <span>·</span>}
+                <span>{runtimeStr(movie.runTime)}</span>
+              </>
+            )}
             {movie.scores?.rt != null && (
               <>
                 <span>·</span>
@@ -181,7 +191,9 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             <>
               <span>·</span>
               <a
-                href={`https://www.rottentomatoes.com/search?search=${encodeURIComponent(movie.name)}`}
+                href={movie.scores?.rtSlug
+                  ? `https://www.rottentomatoes.com${movie.scores.rtSlug}`
+                  : `https://www.rottentomatoes.com/search?search=${encodeURIComponent(movie.name)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-red-500 hover:text-red-400"

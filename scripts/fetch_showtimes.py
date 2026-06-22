@@ -36,7 +36,7 @@ def _parse_lang_from_attr_name(name):
     return m.group(1) if m else None
 
 
-def scrape_rt_score(title):
+def scrape_rt(title, release_year=None):
     try:
         r = requests.get(
             'https://www.rottentomatoes.com/search',
@@ -44,29 +44,34 @@ def scrape_rt_score(title):
             headers=RT_HEADERS,
             timeout=10,
         )
-        blocks = re.findall(r'tomatometer-score="(\d+)".*?alt="([^"]+)"', r.text, re.DOTALL)
+        blocks = re.findall(r'href="https://www\.rottentomatoes\.com(/m/[^"]+)"[^>]*>.*?tomatometer-score="(\d+)".*?alt="([^"]+)"', r.text, re.DOTALL)
         title_lower = title.lower()
-        for score, found_title in blocks:
-            if found_title.lower() == title_lower:
-                return int(score)
+        for slug, score, found_title in blocks:
+            if found_title.lower() != title_lower:
+                continue
+            if release_year:
+                slug_years = re.findall(r'_(\d{4})(?:[/_]|$)', slug)
+                if slug_years and abs(int(slug_years[0]) - int(release_year)) > 2:
+                    continue
+            return int(score), slug
     except Exception:
         pass
-    return None
+    return None, None
 
 
 def fetch_rt_cache():
     try:
         r = requests.get(APPS_SCRIPT_URL, params={'sheet': 'scores'}, timeout=15)
-        return {item['amcId']: item.get('rtScore') for item in r.json()}
+        return {item['amcId']: {'rtScore': item.get('rtScore'), 'rtSlug': item.get('rtSlug')} for item in r.json()}
     except Exception:
         return {}
 
 
-def upsert_rt_score(amc_id, title, rt_score, now_str):
+def upsert_rt_score(amc_id, title, rt_score, rt_slug, now_str):
     try:
         requests.post(
             APPS_SCRIPT_URL,
-            json={'action': 'upsertScore', 'amcId': str(amc_id), 'title': title, 'rtScore': rt_score, 'fetchedAt': now_str},
+            json={'action': 'upsertScore', 'amcId': str(amc_id), 'title': title, 'rtScore': rt_score, 'rtSlug': rt_slug or '', 'fetchedAt': now_str},
             timeout=15,
         )
     except Exception as e:
@@ -171,12 +176,17 @@ def run():
                     time.sleep(0.1)
 
                     amc_id_str = str(mid)
-                    if amc_id_str in rt_cache:
-                        rt_score = rt_cache[amc_id_str]
+                    is_fathom = "EVENT" in attr_codes
+                    release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
+                    if is_world_cup or is_fathom:
+                        rt_score, rt_slug = None, None
+                    elif amc_id_str in rt_cache:
+                        rt_score = rt_cache[amc_id_str]['rtScore']
+                        rt_slug = rt_cache[amc_id_str]['rtSlug']
                     else:
-                        rt_score = scrape_rt_score(name)
-                        upsert_rt_score(mid, name, rt_score, now_str)
-                        rt_cache[amc_id_str] = rt_score
+                        rt_score, rt_slug = scrape_rt(name, release_year)
+                        upsert_rt_score(mid, name, rt_score, rt_slug, now_str)
+                        rt_cache[amc_id_str] = {'rtScore': rt_score, 'rtSlug': rt_slug}
                         time.sleep(1)
 
                     movies[mid] = {
@@ -185,13 +195,14 @@ def run():
                         "genre": s.get("genre", ""),
                         "mpaaRating": s.get("mpaaRating", ""),
                         "runTime": s.get("runTime", 0),
+                        "releaseYear": release_year,
                         "poster": (s.get("media") or {}).get("posterDynamic", ""),
                         "formats": set(),
                         "languages": set(),
                         "isFathom": False,
                         "isWorldCup": is_world_cup,
                         "availableForAList": movie_api.get("availableForAList", True),
-                        "scores": {"rt": rt_score} if rt_score is not None else {},
+                        "scores": {"rt": rt_score, "rtSlug": rt_slug},
                         "screenings": [],
                     }
 
@@ -222,7 +233,8 @@ def run():
             consecutive_empty = 0
 
     print("Cleaning up stale RT cache entries...")
-    cleanup_rt_cache(list(movies.keys()))
+    clean_ids = [mid for mid, m in movies.items() if not m['isFathom'] and not m['isWorldCup']]
+    cleanup_rt_cache(clean_ids)
 
     # Convert sets to sorted lists
     for m in movies.values():
