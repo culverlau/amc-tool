@@ -155,9 +155,7 @@ def run():
             good_rows = build_good_rows(row_min, row_max)
             current = fetch_good_seats(page, sid, good_rows, seat_min, seat_max)
             if current is None:
-                print('  Seat map unavailable — removing from watchlist')
-                remove_from_watchlist(sid)
-                state.pop(sid, None)
+                print('  Seat map unavailable — skipping')
                 continue
 
             last_seen = set(state.get(sid, []))
