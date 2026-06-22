@@ -194,6 +194,17 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
                 </span>
               </>
             )}
+            <>
+              <span>·</span>
+              <a
+                href={`https://www.rottentomatoes.com/search?search=${encodeURIComponent(movie.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-red-500 hover:text-red-400"
+              >
+                RT ↗
+              </a>
+            </>
             {movie.languages.length > 0 && !movie.languages.includes('English') && (
               <>
                 <span>·</span>
