@@ -1,4 +1,5 @@
 import re
+import html as html_module
 import requests
 import json
 import os
@@ -36,6 +37,12 @@ def _parse_lang_from_attr_name(name):
     return m.group(1) if m else None
 
 
+def _rt_normalize(t):
+    t = html_module.unescape(t)
+    t = t.replace('–', '-').replace('—', '-')  # en/em dash → hyphen
+    return t.lower().strip()
+
+
 def scrape_rt(title, release_year=None):
     try:
         r = requests.get(
@@ -44,16 +51,22 @@ def scrape_rt(title, release_year=None):
             headers=RT_HEADERS,
             timeout=10,
         )
-        blocks = re.findall(r'href="https://www\.rottentomatoes\.com(/m/[^"]+)"[^>]*>.*?tomatometer-score="(\d+)".*?alt="([^"]+)"', r.text, re.DOTALL)
-        title_lower = title.lower()
-        for slug, score, found_title in blocks:
-            if found_title.lower() != title_lower:
+        title_norm = _rt_normalize(title)
+        for block in re.split(r'<search-page-media-row', r.text)[1:]:
+            score_m = re.search(r'tomatometer-score="(\d+)"', block)
+            year_m = re.search(r'release-year="(\d+)"', block)
+            slug_m = re.search(r'href="https://www\.rottentomatoes\.com(/m/[^"]+)"', block)
+            title_m = re.search(r'alt="([^"]+)"', block)
+            if not (score_m and slug_m and title_m):
                 continue
-            if release_year:
-                slug_years = re.findall(r'_(\d{4})(?:[/_]|$)', slug)
-                if slug_years and abs(int(slug_years[0]) - int(release_year)) > 2:
+            rt_norm = _rt_normalize(title_m.group(1))
+            # exact match OR RT title starts with AMC title (e.g. "F1" → "F1 The Movie")
+            if rt_norm != title_norm and not rt_norm.startswith(title_norm + ' '):
+                continue
+            if release_year and year_m:
+                if abs(int(year_m.group(1)) - int(release_year)) > 2:
                     continue
-            return int(score), slug
+            return int(score_m.group(1)), slug_m.group(1)
     except Exception:
         pass
     return None, None
