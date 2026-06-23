@@ -1,0 +1,25 @@
+name: Refresh RT Scores
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 8am UTC
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Refresh RT scores
+        env:
+          AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
+        run: |
+          pip install requests
+          python scripts/refresh_rt_scores.py

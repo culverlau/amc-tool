@@ -283,9 +283,14 @@ def run():
                     elif cached and cached.get('rtScore') is not None:
                         rt_score = cached['rtScore']
                         rt_slug = cached.get('rtSlug')
+                    elif cached and cached.get('rtSlug'):
+                        # Previously found on RT but not yet reviewed — preserve slug for NR badge
+                        rt_score, rt_slug = None, cached['rtSlug']
+                    elif os.environ.get('SKIP_RT_SCRAPE'):
+                        rt_score, rt_slug = None, None
                     else:
                         rt_score, rt_slug = scrape_rt(name, release_year)
-                        if rt_score is not None:
+                        if rt_score is not None or rt_slug:
                             upsert_rt_score(mid, name, rt_score, rt_slug, now_str)
                             rt_cache[amc_id_str] = {'rtScore': rt_score, 'rtSlug': rt_slug}
                         time.sleep(1)
