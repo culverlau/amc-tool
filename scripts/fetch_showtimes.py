@@ -81,13 +81,11 @@ def _parse_rt_blocks(blocks):
     return results
 
 
-_FOUND_UNSCORED = object()  # film found on RT but no tomatometer score yet
-
-
 def _find_rt_match(rt_results, search_title, release_year, strip_arts=False):
     """
-    Returns a result dict if a scored match is found, _FOUND_UNSCORED if the correct
-    film is on RT but has no score yet, or None if no title match at all.
+    Returns a result dict on any title match (score may be None for unscored films),
+    or None if no title match at all. Callers should stop on a match even if unscored
+    to prevent falling through to a wrong film that shares the name.
     """
     raw_norm    = _rt_normalize(search_title)
     search_norm = _remove_articles(raw_norm) if strip_arts else raw_norm
@@ -111,13 +109,13 @@ def _find_rt_match(rt_results, search_title, release_year, strip_arts=False):
             None
         )
         if recent is not None:
-            return recent if recent['score'] is not None else _FOUND_UNSCORED
+            return recent
 
     for r in title_matches:
         if amc_year and r['rt_year'] and amc_year < CURRENT_YEAR:
             if abs(r['rt_year'] - amc_year) > 2:
                 continue
-        return r if r['score'] is not None else _FOUND_UNSCORED
+        return r
 
     return None
 
@@ -147,11 +145,11 @@ def scrape_rt(title, release_year=None):
 
         for search_title, strip_arts, label in attempt_labels:
             match = _find_rt_match(rt_results, search_title, release_year, strip_arts=strip_arts)
-            if match is _FOUND_UNSCORED:
-                print(f'  RT [{label}] "{title}" ({release_year}) → unscored (film exists, no tomatometer yet)')
-                return None, None
             if match is not None:
-                print(f'  RT [{label}] "{title}" ({release_year}) → {match["score"]} {match["slug"]}')
+                if match['score'] is None:
+                    print(f'  RT [{label}] "{title}" ({release_year}) → unscored {match["slug"]}')
+                else:
+                    print(f'  RT [{label}] "{title}" ({release_year}) → {match["score"]} {match["slug"]}')
                 return match['score'], match['slug']
 
         print(f'  RT [no match] "{title}" ({release_year})')

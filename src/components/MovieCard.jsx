@@ -180,14 +180,19 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
                 <span>{runtimeStr(movie.runTime)}</span>
               </>
             )}
-            {movie.scores?.rt != null && (
+            {movie.scores?.rt != null ? (
               <>
                 <span>·</span>
                 <span className={movie.scores.rt >= 60 ? 'text-red-400' : 'text-yellow-600'}>
                   🍅 {movie.scores.rt}%
                 </span>
               </>
-            )}
+            ) : movie.scores?.rtSlug ? (
+              <>
+                <span>·</span>
+                <span className="text-gray-500">🍅 NR</span>
+              </>
+            ) : null}
             <>
               <span>·</span>
               <a
