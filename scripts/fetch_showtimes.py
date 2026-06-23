@@ -135,18 +135,28 @@ def scrape_rt(title, release_year=None):
 
         # Four attempts in order of confidence: original title / suffix-stripped,
         # each with and without article normalization ("The Ballad" vs "Ballad")
-        attempts = [(title, False), (title, True)]
+        attempt_labels = [
+            (title,   False, 'exact'),
+            (title,   True,  'articles'),
+        ]
         if cleaned != title:
-            attempts += [(cleaned, False), (cleaned, True)]
+            attempt_labels += [
+                (cleaned, False, 'suffix'),
+                (cleaned, True,  'suffix+articles'),
+            ]
 
-        for search_title, strip_arts in attempts:
+        for search_title, strip_arts, label in attempt_labels:
             match = _find_rt_match(rt_results, search_title, release_year, strip_arts=strip_arts)
             if match is _FOUND_UNSCORED:
+                print(f'  RT [{label}] "{title}" ({release_year}) → unscored (film exists, no tomatometer yet)')
                 return None, None
             if match is not None:
+                print(f'  RT [{label}] "{title}" ({release_year}) → {match["score"]} {match["slug"]}')
                 return match['score'], match['slug']
-    except Exception:
-        pass
+
+        print(f'  RT [no match] "{title}" ({release_year})')
+    except Exception as e:
+        print(f'  RT [error] "{title}": {e}')
     return None, None
 
 
