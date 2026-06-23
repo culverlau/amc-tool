@@ -11,6 +11,7 @@ export default function App() {
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('loading') // 'loading' | 'ok' | 'error'
   const [watchlistItems, setWatchlistItems] = useState([])
+  const [liveRtScores, setLiveRtScores] = useState(null) // Map<amcId, {rt, rtSlug}>
   const [pendingShowtime, setPendingShowtime] = useState(null)
   const [showWatchlist, setShowWatchlist] = useState(false)
 
@@ -30,6 +31,24 @@ export default function App() {
     }
     return map
   }, [data])
+
+  useEffect(() => {
+    fetch(`${WATCHLIST_URL}?sheet=scores`)
+      .then(r => r.json())
+      .then(items => {
+        const map = new Map()
+        for (const item of items) {
+          if (item.amcId) {
+            map.set(String(item.amcId), {
+              rt: item.rtScore != null ? Number(item.rtScore) : null,
+              rtSlug: item.rtSlug || null,
+            })
+          }
+        }
+        setLiveRtScores(map)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch(WATCHLIST_URL)
@@ -242,15 +261,21 @@ export default function App() {
 
         {status === 'ok' && (
           <div className="space-y-3">
-            {filteredMovies.map(movie => (
-              <MovieCard
-                key={movie.id}
-                movie={movie}
-                filters={filters}
-                watchlist={watchlist}
-                onToggleStar={handleToggleStar}
-              />
-            ))}
+            {filteredMovies.map(movie => {
+              const live = liveRtScores?.get(String(movie.id))
+              const merged = live
+                ? { ...movie, scores: { ...movie.scores, ...live } }
+                : movie
+              return (
+                <MovieCard
+                  key={movie.id}
+                  movie={merged}
+                  filters={filters}
+                  watchlist={watchlist}
+                  onToggleStar={handleToggleStar}
+                />
+              )
+            })}
           </div>
         )}
 
