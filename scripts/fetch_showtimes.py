@@ -1,19 +1,15 @@
 import re
-import html as html_module
 import requests
 import json
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
 
-CURRENT_YEAR = date.today().year
-
 def _read_key_file(path):
     try:
         with open(path) as f:
             for line in f:
                 line = line.strip()
-                # A key has no spaces, isn't a URL, and is at least 8 chars
                 if line and ' ' not in line and not line.startswith('http') and len(line) >= 8:
                     return line
     except Exception:
@@ -24,9 +20,6 @@ API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file("amc_api.txt")
 BASE = "https://api.amctheatres.com"
 HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
-APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
-RT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'}
-
 THEATERS = {
     2116: "AMC Lincoln Square 13",
     2120: "AMC 34th Street 14",
@@ -34,163 +27,25 @@ THEATERS = {
     552: "AMC Empire 25",
 }
 
+
 def _parse_lang_from_attr_name(name):
     m = re.match(r'^(\w+)\s+(?:Spoken|Language)\b', name)
     return m.group(1) if m else None
 
 
-def _rt_normalize(t):
-    t = html_module.unescape(t)
-    t = t.replace('–', '-').replace('—', '-')  # en/em dash → hyphen
-    return t.lower().strip()
-
-
-def _remove_articles(s):
-    s = re.sub(r'\b(the|a|an)\s+', '', s)
-    return re.sub(r'\s+', ' ', s).strip()
-
-
-def _titles_match(search_norm, rt_norm):
-    return (rt_norm == search_norm
-            or rt_norm.startswith(search_norm + ' ')
-            or search_norm.startswith(rt_norm + ' '))
-
-
-def _strip_rerelease_suffix(title):
-    t = re.sub(r'\s*[-–]\s*\d+(?:st|nd|rd|th)?\s+anniversary\b.*', '', title, flags=re.IGNORECASE)
-    t = re.sub(r'\s+\d+(?:st|nd|rd|th)?\s+anniversary\b.*', '', t, flags=re.IGNORECASE)
-    t = re.sub(r'\s+celebrates\b.*', '', t, flags=re.IGNORECASE)
-    return t.strip()
-
-
-def _parse_rt_blocks(blocks):
-    results = []
-    for block in blocks:
-        score_m = re.search(r'tomatometer-score="(\d+)"', block)
-        year_m  = re.search(r'release-year="(\d+)"', block)
-        slug_m  = re.search(r'href="https://www\.rottentomatoes\.com(/m/[^"]+)"', block)
-        title_m = re.search(r'alt="([^"]+)"', block)
-        if not (slug_m and title_m):
-            continue
-        results.append({
-            'rt_title': _rt_normalize(title_m.group(1)),
-            'rt_year':  int(year_m.group(1)) if year_m else None,
-            'score':    int(score_m.group(1)) if score_m else None,
-            'slug':     slug_m.group(1),
-        })
-    return results
-
-
-def _find_rt_match(rt_results, search_title, release_year, strip_arts=False):
-    """
-    Returns a result dict on any title match (score may be None for unscored films),
-    or None if no title match at all. Callers should stop on a match even if unscored
-    to prevent falling through to a wrong film that shares the name.
-    """
-    raw_norm    = _rt_normalize(search_title)
-    search_norm = _remove_articles(raw_norm) if strip_arts else raw_norm
-    amc_year    = int(release_year) if release_year else None
-
-    title_matches = []
-    for r in rt_results:
-        rt_cmp = _remove_articles(r['rt_title']) if strip_arts else r['rt_title']
-        if _titles_match(search_norm, rt_cmp):
-            title_matches.append(r)
-
-    if not title_matches:
-        return None
-
-    # Current-year AMC: check for a recent RT entry to distinguish new film vs re-release.
-    # If a recent RT entry exists → new film; use it or stop (don't fall through to old films).
-    # If no recent RT entry → old film being re-run; fall through to year-agnostic matching.
-    if amc_year and amc_year >= CURRENT_YEAR:
-        recent = next(
-            (r for r in title_matches if r['rt_year'] and abs(r['rt_year'] - CURRENT_YEAR) <= 2),
-            None
-        )
-        if recent is not None:
-            return recent
-
-    for r in title_matches:
-        if amc_year and r['rt_year'] and amc_year < CURRENT_YEAR:
-            if abs(r['rt_year'] - amc_year) > 2:
-                continue
-        return r
-
-    return None
-
-
-def scrape_rt(title, release_year=None):
-    try:
-        r = requests.get(
-            'https://www.rottentomatoes.com/search',
-            params={'search': title},
-            headers=RT_HEADERS,
-            timeout=10,
-        )
-        rt_results = _parse_rt_blocks(re.split(r'<search-page-media-row', r.text)[1:])
-        cleaned = _strip_rerelease_suffix(title)
-
-        # Four attempts in order of confidence: original title / suffix-stripped,
-        # each with and without article normalization ("The Ballad" vs "Ballad")
-        attempt_labels = [
-            (title,   False, 'exact'),
-            (title,   True,  'articles'),
-        ]
-        if cleaned != title:
-            attempt_labels += [
-                (cleaned, False, 'suffix'),
-                (cleaned, True,  'suffix+articles'),
-            ]
-
-        for search_title, strip_arts, label in attempt_labels:
-            match = _find_rt_match(rt_results, search_title, release_year, strip_arts=strip_arts)
-            if match is not None:
-                if match['score'] is None:
-                    print(f'  RT [{label}] "{title}" ({release_year}) → unscored {match["slug"]}')
-                else:
-                    print(f'  RT [{label}] "{title}" ({release_year}) → {match["score"]} {match["slug"]}')
-                return match['score'], match['slug']
-
-        print(f'  RT [no match] "{title}" ({release_year})')
-    except Exception as e:
-        print(f'  RT [error] "{title}": {e}')
-    return None, None
-
-
-def fetch_rt_cache():
-    try:
-        r = requests.get(APPS_SCRIPT_URL, params={'sheet': 'scores'}, timeout=15)
-        return {item['amcId']: {'rtScore': item.get('rtScore'), 'rtSlug': item.get('rtSlug')} for item in r.json()}
-    except Exception:
-        return {}
-
-
-def upsert_rt_score(amc_id, title, rt_score, rt_slug, now_str):
-    try:
-        requests.post(
-            APPS_SCRIPT_URL,
-            json={'action': 'upsertScore', 'amcId': str(amc_id), 'title': title, 'rtScore': rt_score, 'rtSlug': rt_slug or '', 'fetchedAt': now_str},
-            timeout=15,
-        )
-    except Exception as e:
-        print(f'Warning: could not upsert RT score for {title}: {e}')
-
-
-def cleanup_rt_cache(amc_ids):
-    try:
-        requests.post(
-            APPS_SCRIPT_URL,
-            json={'action': 'cleanupScores', 'amcIds': [str(i) for i in amc_ids]},
-            timeout=15,
-        )
-    except Exception as e:
-        print(f'Warning: could not cleanup RT cache: {e}')
-
-
 def fetch_movie(movie_id):
-    r = requests.get(f"{BASE}/v2/movies/{movie_id}", headers=HEADERS, timeout=15)
-    return r.json() if r.status_code == 200 else {}
+    try:
+        r = requests.get(f"{BASE}/v2/movies/{movie_id}", headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            print(f'Warning: fetch_movie {movie_id} got HTTP {r.status_code}')
+            return {}
+        return r.json()
+    except requests.Timeout:
+        print(f'Warning: fetch_movie {movie_id} timed out')
+        return {}
+    except Exception as e:
+        print(f'Warning: fetch_movie {movie_id} failed: {e}')
+        return {}
 
 
 def fetch_showtimes(theater_id, date_str):
@@ -198,8 +53,17 @@ def fetch_showtimes(theater_id, date_str):
     page = 1
     while True:
         url = f"{BASE}/v2/theatres/{theater_id}/showtimes/{date_str}?pageSize=100&pageNumber={page}"
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+        except requests.Timeout:
+            print(f'Warning: fetch_showtimes theater={theater_id} {date_str} timed out')
+            break
+        except Exception as e:
+            print(f'Warning: fetch_showtimes theater={theater_id} {date_str} failed: {e}')
+            break
         if resp.status_code != 200:
+            if resp.status_code != 404:
+                print(f'Warning: fetch_showtimes theater={theater_id} {date_str} got HTTP {resp.status_code}')
             break
         data = resp.json()
         batch = data.get("_embedded", {}).get("showtimes", [])
@@ -244,11 +108,6 @@ def run():
     movies = {}
     today = date.today()
     consecutive_empty = 0
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    print("Fetching RT score cache...")
-    rt_cache = fetch_rt_cache()
-    print(f"  {len(rt_cache)} cached scores")
 
     for offset in range(90):
         d = today + timedelta(days=offset)
@@ -257,7 +116,7 @@ def run():
 
         for theater_id, theater_name in THEATERS.items():
             showtimes = fetch_showtimes(theater_id, date_str)
-            time.sleep(0.1)  # gentle rate limiting
+            time.sleep(0.1)
 
             if showtimes:
                 any_results = True
@@ -274,26 +133,7 @@ def run():
                     movie_api = fetch_movie(mid)
                     time.sleep(0.1)
 
-                    amc_id_str = str(mid)
-                    is_fathom = "EVENT" in attr_codes
                     release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
-                    cached = rt_cache.get(amc_id_str)
-                    if is_world_cup or is_fathom:
-                        rt_score, rt_slug = None, None
-                    elif cached and cached.get('rtScore') is not None:
-                        rt_score = cached['rtScore']
-                        rt_slug = cached.get('rtSlug')
-                    elif cached and cached.get('rtSlug'):
-                        # Previously found on RT but not yet reviewed — preserve slug for NR badge
-                        rt_score, rt_slug = None, cached['rtSlug']
-                    elif os.environ.get('SKIP_RT_SCRAPE'):
-                        rt_score, rt_slug = None, None
-                    else:
-                        rt_score, rt_slug = scrape_rt(name, release_year)
-                        if rt_score is not None or rt_slug:
-                            upsert_rt_score(mid, name, rt_score, rt_slug, now_str)
-                            rt_cache[amc_id_str] = {'rtScore': rt_score, 'rtSlug': rt_slug}
-                        time.sleep(1)
 
                     movies[mid] = {
                         "id": mid,
@@ -308,7 +148,7 @@ def run():
                         "isFathom": False,
                         "isWorldCup": is_world_cup,
                         "availableForAList": movie_api.get("availableForAList", True),
-                        "scores": {"rt": rt_score, "rtSlug": rt_slug},
+                        "scores": {},
                         "screenings": [],
                     }
 
@@ -338,16 +178,10 @@ def run():
         else:
             consecutive_empty = 0
 
-    print("Cleaning up stale RT cache entries...")
-    clean_ids = [mid for mid, m in movies.items() if not m['isFathom'] and not m['isWorldCup']]
-    cleanup_rt_cache(clean_ids)
-
-    # Convert sets to sorted lists
     for m in movies.values():
         m["formats"] = sorted(m["formats"])
         m["languages"] = sorted(m["languages"])
 
-    # Sort by earliest screening date+time
     movie_list = sorted(
         movies.values(),
         key=lambda m: min(s["date"] + s["time"] for s in m["screenings"])

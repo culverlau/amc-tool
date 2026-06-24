@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "sh scripts/dev.sh",
     "build": "vite build",
     "preview": "vite preview",
-    "fetch-data": "python3 scripts/fetch_showtimes.py"
+    "fetch-data": "python3 scripts/fetch_showtimes.py",
+    "refresh-rt": "python3 scripts/refresh_rt_scores.py"
   },
   "dependencies": {
     "react": "^18.3.1",

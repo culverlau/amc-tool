@@ -7,7 +7,7 @@ function doGet(e) {
     if (!sheet) return ContentService.createTextOutput(JSON.stringify([]))
       .setMimeType(ContentService.MimeType.JSON);
     var data = sheet.getDataRange().getValues();
-    var result = data.slice(1).map(function(row) {
+    var result = data.map(function(row) {
       return { amcId: String(row[0]), title: row[1] || '', rtScore: row[2] === '' ? null : Number(row[2]), rtSlug: row[3] || '', fetchedAt: row[4] || '' };
     }).filter(function(item) { return item.amcId; });
     return ContentService.createTextOutput(JSON.stringify(result))
@@ -29,7 +29,7 @@ function doPost(e) {
     var sheet = ss.getSheetByName(SCORES_SHEET_NAME);
     if (!sheet) sheet = ss.insertSheet(SCORES_SHEET_NAME);
     var data = sheet.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
+    for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]) === String(body.amcId)) {
         sheet.getRange(i + 1, 1, 1, 5).setValues([[body.amcId, body.title, body.rtScore, body.rtSlug || '', body.fetchedAt]]);
         return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
@@ -45,7 +45,7 @@ function doPost(e) {
     if (!sheet) return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     var keep = new Set(body.amcIds.map(String));
     var data = sheet.getDataRange().getValues();
-    for (var i = data.length - 1; i >= 1; i--) {
+    for (var i = data.length - 1; i >= 0; i--) {
       if (!keep.has(String(data[i][0]))) sheet.deleteRow(i + 1);
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);

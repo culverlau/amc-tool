@@ -33,9 +33,15 @@ export default function App() {
   }, [data])
 
   useEffect(() => {
+    console.log('[RT] fetching live scores from Sheets...')
     fetch(`${WATCHLIST_URL}?sheet=scores`)
-      .then(r => r.json())
+      .then(r => {
+        console.log('[RT] Sheets response status:', r.status)
+        return r.json()
+      })
       .then(items => {
+        console.log('[RT] raw Sheets items:', items.length, 'entries')
+        console.log('[RT] sample (first 5):', items.slice(0, 5))
         const map = new Map()
         for (const item of items) {
           if (item.amcId) {
@@ -45,9 +51,14 @@ export default function App() {
             })
           }
         }
+        console.log('[RT] map built:', map.size, 'entries')
+        // Log scored entries (non-null scores)
+        const scored = [...map.entries()].filter(([, v]) => v.rt != null)
+        console.log('[RT] entries with scores:', scored.length)
+        console.log('[RT] scored sample:', scored.slice(0, 5))
         setLiveRtScores(map)
       })
-      .catch(() => {})
+      .catch(err => console.error('[RT] Sheets fetch failed:', err))
   }, [])
 
   useEffect(() => {
@@ -133,6 +144,12 @@ export default function App() {
         return r.json()
       })
       .then(d => {
+        console.log('[data.json] loaded', d.movies.length, 'movies')
+        const withScores = d.movies.filter(m => m.scores?.rt != null)
+        const withSlug   = d.movies.filter(m => m.scores?.rtSlug && m.scores?.rt == null)
+        console.log('[data.json] movies with RT score:', withScores.length)
+        console.log('[data.json] movies with slug but no score (NR):', withSlug.length)
+        console.log('[data.json] movies with no RT info:', d.movies.length - withScores.length - withSlug.length)
         setData(d)
         setStatus('ok')
       })
@@ -266,6 +283,12 @@ export default function App() {
               const merged = live
                 ? { ...movie, scores: { ...movie.scores, ...live } }
                 : movie
+              if (live) {
+                console.log(`[RT overlay] "${movie.name}" (id=${movie.id}) live=${JSON.stringify(live)} base=${JSON.stringify(movie.scores)}`)
+              } else if (liveRtScores) {
+                // Sheets loaded but no entry found for this movie
+                console.log(`[RT miss] "${movie.name}" (id=${movie.id}) — not in Sheets map (base scores: ${JSON.stringify(movie.scores)})`)
+              }
               return (
                 <MovieCard
                   key={movie.id}
