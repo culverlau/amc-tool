@@ -106,6 +106,7 @@ def detect_languages(showtime):
 
 def run():
     movies = {}
+    skipped = set()  # non-A-List movie IDs already checked
     today = date.today()
     consecutive_empty = 0
 
@@ -123,15 +124,18 @@ def run():
 
             for s in showtimes:
                 mid = s["movieId"]
-                attr_codes = {a["code"].upper() for a in s.get("attributes", [])}
                 name = s["movieName"]
-                is_world_cup = "COPA MUNDIAL" in name.upper() or (
-                    "FIFA" in name.upper() and "TELEMUNDO" in name.upper()
-                )
+
+                if mid in skipped:
+                    continue
 
                 if mid not in movies:
                     movie_api = fetch_movie(mid)
                     time.sleep(0.1)
+
+                    if movie_api.get("availableForAList") is False:
+                        skipped.add(mid)
+                        continue
 
                     release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
 
@@ -145,9 +149,6 @@ def run():
                         "poster": (s.get("media") or {}).get("posterDynamic", ""),
                         "formats": set(),
                         "languages": set(),
-                        "isFathom": False,
-                        "isWorldCup": is_world_cup,
-                        "availableForAList": movie_api.get("availableForAList", True),
                         "scores": {},
                         "screenings": [],
                     }
@@ -156,8 +157,6 @@ def run():
                 movies[mid]["formats"].add(fmt)
                 for lang in detect_languages(s):
                     movies[mid]["languages"].add(lang)
-                if "EVENT" in attr_codes:
-                    movies[mid]["isFathom"] = True
 
                 movies[mid]["screenings"].append({
                     "showtimeId": s["id"],

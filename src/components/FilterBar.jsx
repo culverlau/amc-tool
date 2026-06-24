@@ -77,19 +77,6 @@ function Dropdown({ label, options, selected, onChange }) {
   )
 }
 
-function Toggle({ label, checked, onChange }) {
-  return (
-    <label className="flex items-center gap-2 cursor-pointer select-none">
-      <div
-        onClick={() => onChange(!checked)}
-        className={`relative w-8 h-4 rounded-full transition-colors ${checked ? 'bg-red-600' : 'bg-gray-700'}`}
-      >
-        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
-      </div>
-      <span className="text-sm text-gray-400">{label}</span>
-    </label>
-  )
-}
 
 export default function FilterBar({ theaters, formats, languages, filters, onChange }) {
   const theaterOptions = Object.entries(theaters).map(([id, name]) => ({
@@ -131,27 +118,9 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           />
         </div>
 
-        <Toggle
-          label="Hide World Cup"
-          checked={filters.hideWorldCup}
-          onChange={v => onChange({ ...filters, hideWorldCup: v })}
-        />
-
-        <Toggle
-          label="Hide Fathom"
-          checked={filters.hideEvents}
-          onChange={v => onChange({ ...filters, hideEvents: v })}
-        />
-
-        <Toggle
-          label="A-List only"
-          checked={filters.hideNoAList}
-          onChange={v => onChange({ ...filters, hideNoAList: v })}
-        />
-
         {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search) && (
           <button
-            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', hideWorldCup: filters.hideWorldCup, hideEvents: filters.hideEvents, hideNoAList: filters.hideNoAList })}
+            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '' })}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
           >
             Clear all

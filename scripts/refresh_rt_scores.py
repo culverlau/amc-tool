@@ -14,11 +14,7 @@ DATA_JSON_URL = os.environ.get('DATA_JSON_URL')
 
 
 def _parse_movies(data):
-    return [
-        (m['id'], m['name'], m.get('releaseYear'))
-        for m in data['movies']
-        if not m.get('isFathom') and not m.get('isWorldCup')
-    ]
+    return [(m['id'], m['name'], m.get('releaseYear')) for m in data['movies']]
 
 
 def load_movies_from_data_json():
@@ -68,17 +64,13 @@ def load_movies_from_amc_api():
             for s in showtimes:
                 mid = s["movieId"]
                 name = s["movieName"]
-                attr_codes = {a["code"].upper() for a in s.get("attributes", [])}
-                is_world_cup = "COPA MUNDIAL" in name.upper() or (
-                    "FIFA" in name.upper() and "TELEMUNDO" in name.upper()
-                )
-                if is_world_cup or "EVENT" in attr_codes:
-                    continue
                 if mid in seen:
                     continue
                 seen.add(mid)
                 try:
                     movie_api = fetch_movie(mid)
+                    if movie_api.get("availableForAList") is False:
+                        continue
                     release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
                 except Exception as e:
                     print(f"  ERROR fetching movie {mid} ({name}): {e}")

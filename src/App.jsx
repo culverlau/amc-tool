@@ -132,9 +132,6 @@ export default function App() {
     formats: [],
     languages: [],
     search: '',
-    hideWorldCup: true,
-    hideEvents: false,
-    hideNoAList: true,
   })
 
   useEffect(() => {
@@ -176,9 +173,6 @@ export default function App() {
       if (filters.languages.length > 0) {
         if (!filters.languages.some(l => movie.languages.includes(l))) return false
       }
-      if (filters.hideWorldCup && movie.isWorldCup) return false
-      if (filters.hideEvents && movie.isFathom) return false
-      if (filters.hideNoAList && movie.availableForAList === false) return false
       // Theater + format filtering happens inside MovieCard (it returns null if empty)
       return true
     })
