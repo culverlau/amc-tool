@@ -2,7 +2,6 @@ import re
 import requests
 import json
 import os
-import time
 from datetime import date
 from playwright.sync_api import sync_playwright
 
@@ -37,9 +36,13 @@ def save_state(state):
 
 
 def fetch_watchlist():
-    r = requests.get(WATCHLIST_URL, timeout=15)
-    data = r.json()
-    return [item for item in data if item.get('showtimeId')]
+    try:
+        r = requests.get(WATCHLIST_URL, timeout=15)
+        r.raise_for_status()
+        return [item for item in r.json() if item.get('showtimeId')]
+    except Exception as e:
+        print(f'Failed to fetch watchlist: {e}')
+        return None
 
 
 def is_past(name):
@@ -73,8 +76,6 @@ def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
         print(f'  Could not load seat map: {e}')
         print(f'  Page URL: {page.url}')
         print(f'  Page title: {page.title()}')
-        os.makedirs('failure_screenshots', exist_ok=True)
-        page.screenshot(path=f'failure_screenshots/{showtime_id}.png')
         return None
 
     seats = page.eval_on_selector_all(
@@ -124,6 +125,8 @@ def run():
     state = load_state()
     watchlist = fetch_watchlist()
 
+    if watchlist is None:
+        return
     if not watchlist:
         print('Watchlist empty — nothing to snipe')
         return
@@ -145,6 +148,9 @@ def run():
             headless=True,
             args=['--disable-blink-features=AutomationControlled'],
         )
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        )
 
         for item in watchlist:
             sid = str(item['showtimeId'])
@@ -163,12 +169,9 @@ def run():
             seat_max = int(item.get('seatMax') or DEFAULT_SEAT_MAX)
             good_rows = build_good_rows(row_min, row_max)
 
-            context = browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            )
             page = context.new_page()
             current = fetch_good_seats(page, sid, good_rows, seat_min, seat_max)
-            context.close()
+            page.close()
 
             if current is None:
                 print('  Seat map unavailable — skipping')
@@ -189,11 +192,10 @@ def run():
                 print(f'  {len(current_set)} good seat(s), no change')
 
             state[sid] = current
-            time.sleep(2)
+            save_state(state)
 
+        context.close()
         browser.close()
-
-    save_state(state)
 
 
 if __name__ == '__main__':

@@ -16,19 +16,28 @@ jobs:
           key: sniper-state-${{ github.run_id }}
           restore-keys: sniper-state-
 
-      - name: Install dependencies
-        run: pip install requests playwright && python -m playwright install --with-deps chromium
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-sniper-${{ runner.os }}-playwright-1.60.0
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.60.0
+
+      - name: Install Python dependencies
+        run: pip install requests playwright==1.60.0
+
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install chromium
 
       - name: Run seat sniper
         run: python scripts/snipe_seats.py
-
-      - name: Upload failure screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-screenshots
-          path: failure_screenshots/
-          if-no-files-found: ignore
 
       - name: Save sniper state
         uses: actions/cache@v4
