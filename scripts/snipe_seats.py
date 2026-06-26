@@ -64,6 +64,17 @@ def remove_from_watchlist(showtime_id):
         print(f'  Could not remove: {e}')
 
 
+def update_sheet_seats(showtime_id, seats):
+    try:
+        requests.post(
+            WATCHLIST_URL,
+            json={'action': 'updateSeats', 'showtimeId': showtime_id, 'seats': ','.join(seats)},
+            timeout=15,
+        )
+    except Exception as e:
+        print(f'  Could not update sheet seats: {e}')
+
+
 def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
     url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
     try:
@@ -184,8 +195,15 @@ def run():
             if new_seats:
                 seat_str = ' '.join(sorted(new_seats))
                 total = len(current_set)
-                send_title = name.split('·')[0].strip()
+                parts = [p.strip() for p in name.split('·')]
+                movie = next((p for p in parts if p and not re.match(r'^\d{4}-', p) and 'AMC' not in p and ':' not in p), sid)
+                date_part = next((p for p in parts if re.match(r'^\d{4}-\d{2}-\d{2}$', p)), '')
+                time_part = next((p for p in parts if re.match(r'^\d{1,2}:\d{2}', p)), '')
+                detail = ' · '.join(filter(None, [date_part, time_part]))
+                send_title = movie
                 send_body = f'{total} good seat(s) open — NEW: {seat_str}'
+                if detail:
+                    send_body += f'\n{detail}'
                 print(f'  → {send_body}')
                 notify(send_title, send_body)
             else:
@@ -193,6 +211,7 @@ def run():
 
             state[sid] = current
             save_state(state)
+            update_sheet_seats(sid, current)
 
         context.close()
         browser.close()

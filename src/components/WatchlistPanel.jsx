@@ -1,8 +1,6 @@
 export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClose }) {
   function parseLabel(name) {
     const parts = (name || '').split(' · ')
-    // New format: movieName · theaterName · date · time · format (5 parts)
-    // Old format: theaterName · date · time · format (4 parts)
     const offset = parts.length >= 5 ? 1 : 0
     if (parts.length >= 4) {
       const movieName = offset ? parts[0] : ''
@@ -21,74 +19,89 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[80vh]"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-shrink-0">
-          <div>
-            <h2 className="text-white font-semibold text-base">Watchlist</h2>
-            <p className="text-gray-500 text-xs mt-0.5">
-              {items.length === 0 ? 'Nothing monitored' : `${items.length} showing${items.length !== 1 ? 's' : ''} monitored`}
+    <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col">
+      {/* Header */}
+      <header className="flex items-center gap-4 px-5 py-4 border-b border-gray-800 flex-shrink-0">
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-white flex items-center gap-1.5 text-sm transition-colors"
+        >
+          ← Back
+        </button>
+        <div className="flex-1">
+          <h2 className="text-white font-semibold text-base">Watchlist</h2>
+          <p className="text-gray-500 text-xs">
+            {items.length === 0 ? 'Nothing monitored' : `${items.length} showing${items.length !== 1 ? 's' : ''} monitored · seats updated every 5 min`}
+          </p>
+        </div>
+      </header>
+
+      {/* Items */}
+      <div className="overflow-y-auto flex-1 p-4 max-w-2xl mx-auto w-full space-y-3">
+        {items.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-gray-500 text-sm">No showtimes being watched.</p>
+            <p className="text-gray-600 text-xs mt-1">
+              Star a Lincoln Square IMAX showing to start monitoring seats.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition-colors text-lg leading-none"
-          >
-            ✕
-          </button>
-        </div>
+        ) : (
+          items.map(item => {
+            const parsed = parseLabel(item.name)
+            const movieName = movieNames[String(item.showtimeId)] || parsed?.movieName || ''
+            const seats = item.availableSeats
+              ? item.availableSeats.split(',').map(s => s.trim()).filter(Boolean)
+              : null
 
-        <div className="overflow-y-auto flex-1 p-4 space-y-2">
-          {items.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-gray-500 text-sm">No showtimes being watched.</p>
-              <p className="text-gray-600 text-xs mt-1">
-                Star a Lincoln Square IMAX showing to start monitoring seats.
-              </p>
-            </div>
-          ) : (
-            items.map(item => {
-              const parsed = parseLabel(item.name)
-              const movieName = movieNames[String(item.showtimeId)] || parsed?.movieName || ''
-              return (
-                <div key={item.showtimeId} className="bg-gray-800 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+            return (
+              <div key={item.showtimeId} className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {parsed ? (
-                      <>
-                        {movieName && (
-                          <p className="text-white text-sm font-medium leading-tight">{movieName}</p>
-                        )}
-                        <p className={`text-xs mt-0.5 ${movieName ? 'text-gray-400' : 'text-white font-medium'}`}>
-                          {parsed.theater} · {parsed.dateStr} · {parsed.timeStr} · {parsed.format}
-                        </p>
-                      </>
-                    ) : (
+                    {movieName && (
+                      <p className="text-white font-semibold text-base leading-tight">{movieName}</p>
+                    )}
+                    {parsed && (
+                      <p className="text-gray-400 text-sm mt-0.5">
+                        {parsed.theater} · {parsed.dateStr} · {parsed.timeStr} · {parsed.format}
+                      </p>
+                    )}
+                    {!movieName && !parsed && (
                       <p className="text-gray-400 text-sm">Showing #{item.showtimeId}</p>
                     )}
-                    <p className="text-gray-600 text-xs mt-1">
-                      Rows {item.rowMin}–{item.rowMax} · Seats {item.seatMin}–{item.seatMax}
-                    </p>
                   </div>
                   <button
                     onClick={() => onRemove(item.showtimeId)}
-                    className="text-gray-600 hover:text-red-400 text-xs transition-colors flex-shrink-0 mt-0.5 py-1 px-2 rounded hover:bg-gray-700"
+                    className="text-gray-600 hover:text-red-400 text-xs transition-colors flex-shrink-0 py-1 px-2 rounded hover:bg-gray-800"
                   >
                     Remove
                   </button>
                 </div>
-              )
-            })
-          )}
-        </div>
 
-        <div className="px-5 py-3 border-t border-gray-800 flex-shrink-0">
-          <p className="text-xs text-gray-600 text-center">
-            Checked every 5 min · Notifications via ntfy.sh
-          </p>
-        </div>
+                <div className="mt-4 pt-4 border-t border-gray-800">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Zone: rows {item.rowMin}–{item.rowMax} · seats {item.seatMin}–{item.seatMax}
+                  </p>
+                  {seats === null ? (
+                    <p className="text-gray-600 text-sm">Seat data not yet available</p>
+                  ) : seats.length === 0 ? (
+                    <p className="text-gray-600 text-sm">No good seats open right now</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {seats.map(seat => (
+                        <span
+                          key={seat}
+                          className="bg-green-500/15 text-green-400 text-xs font-mono font-medium px-2 py-1 rounded-lg"
+                        >
+                          {seat}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )

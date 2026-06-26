@@ -17,7 +17,7 @@ function doGet(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var rows = sheet.getDataRange().getValues();
   return ContentService.createTextOutput(
-    JSON.stringify(rows.map(function(r) { return { showtimeId: r[0], name: r[1], rowMin: r[2] || 'E', rowMax: r[3] || 'L', seatMin: r[4] || 7, seatMax: r[5] || 36 }; }).filter(function(r) { return r.showtimeId; }))
+    JSON.stringify(rows.map(function(r) { return { showtimeId: r[0], name: r[1], rowMin: r[2] || 'E', rowMax: r[3] || 'L', seatMin: r[4] || 7, seatMax: r[5] || 36, availableSeats: r[6] || '' }; }).filter(function(r) { return r.showtimeId; }))
   ).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -58,11 +58,19 @@ function doPost(e) {
   if (action === 'add') {
     var data = sheet.getDataRange().getValues();
     var exists = data.some(function(row) { return String(row[0]) === String(showtimeId); });
-    if (!exists) sheet.appendRow([showtimeId, name]);
+    if (!exists) sheet.appendRow([showtimeId, name, body.rowMin || '', body.rowMax || '', body.seatMin || '', body.seatMax || '', '']);
   } else if (action === 'remove') {
     var data = sheet.getDataRange().getValues();
     for (var i = data.length - 1; i >= 1; i--) {
       if (String(data[i][0]) === String(showtimeId)) { sheet.deleteRow(i + 1); break; }
+    }
+  } else if (action === 'updateSeats') {
+    var data = sheet.getDataRange().getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === String(showtimeId)) {
+        sheet.getRange(i + 1, 7).setValue(body.seats || '');
+        break;
+      }
     }
   }
   return ContentService.createTextOutput(JSON.stringify({ ok: true }))

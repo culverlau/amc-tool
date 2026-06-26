@@ -13,7 +13,7 @@ export default function App() {
   const [watchlistItems, setWatchlistItems] = useState([])
   const [liveRtScores, setLiveRtScores] = useState(null) // Map<amcId, {rt, rtSlug}>
   const [pendingShowtime, setPendingShowtime] = useState(null)
-  const [showWatchlist, setShowWatchlist] = useState(false)
+  const [view, setView] = useState('main') // 'main' | 'watchlist'
 
   const watchlist = useMemo(
     () => new Set(watchlistItems.map(i => String(i.showtimeId))),
@@ -81,7 +81,10 @@ export default function App() {
             })
           }
         }
-        setWatchlistItems(unique)
+        setWatchlistItems(unique.map(i => ({
+          ...i,
+          availableSeats: i.availableSeats || '',
+        })))
       })
       .catch(() => {})
   }, [])
@@ -213,7 +216,7 @@ export default function App() {
               Sheets ↗
             </a>
             <button
-              onClick={() => setShowWatchlist(true)}
+              onClick={() => setView('watchlist')}
               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
                 watchlistItems.length > 0
                   ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
@@ -311,12 +314,12 @@ export default function App() {
         />
       )}
 
-      {showWatchlist && (
+      {view === 'watchlist' && (
         <WatchlistPanel
           items={watchlistItems}
           movieNames={showtimeMovieNames}
           onRemove={removeFromWatchlist}
-          onClose={() => setShowWatchlist(false)}
+          onClose={() => setView('main')}
         />
       )}
     </div>
