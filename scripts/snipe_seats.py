@@ -2,6 +2,7 @@ import re
 import requests
 import json
 import os
+import time
 from datetime import date
 from playwright.sync_api import sync_playwright
 
@@ -36,13 +37,20 @@ def save_state(state):
 
 
 def fetch_watchlist():
-    try:
-        r = requests.get(WATCHLIST_URL, timeout=15)
-        r.raise_for_status()
-        return [item for item in r.json() if item.get('showtimeId')]
-    except Exception as e:
-        print(f'Failed to fetch watchlist: {e}')
-        return None
+    # Apps Script returns intermittent 500s; retry before giving up so a single
+    # transient error doesn't skip the entire run (and leave seats unwritten).
+    last_err = None
+    for attempt in range(4):
+        try:
+            r = requests.get(WATCHLIST_URL, timeout=20)
+            r.raise_for_status()
+            return [item for item in r.json() if item.get('showtimeId')]
+        except Exception as e:
+            last_err = e
+            if attempt < 3:
+                time.sleep(2 * (attempt + 1))
+    print(f'Failed to fetch watchlist after retries: {last_err}')
+    return None
 
 
 def is_past(name):
@@ -65,25 +73,43 @@ def remove_from_watchlist(showtime_id):
 
 
 def update_sheet_seats(showtime_id, seats):
+    payload = {'action': 'updateSeats', 'showtimeId': showtime_id, 'seats': ','.join(seats)}
+    for attempt in range(3):
+        try:
+            r = requests.post(WATCHLIST_URL, json=payload, timeout=20)
+            r.raise_for_status()
+            return
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+            else:
+                print(f'  Could not update sheet seats: {e}')
+
+
+def is_sold_out(page):
+    # Substring match — the banner reads "This showtime is sold out, please
+    # choose another." so an exact-text locator would never match.
     try:
-        requests.post(
-            WATCHLIST_URL,
-            json={'action': 'updateSeats', 'showtimeId': showtime_id, 'seats': ','.join(seats)},
-            timeout=15,
-        )
-    except Exception as e:
-        print(f'  Could not update sheet seats: {e}')
+        return page.get_by_text('showtime is sold out', exact=False).count() > 0
+    except Exception:
+        return False
 
 
 def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
     url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
     try:
         page.goto(url, wait_until='domcontentloaded', timeout=20000)
-        if page.locator('text="This showtime is sold out"').count() > 0:
-            print('  Sold out')
+        if is_sold_out(page):
+            print('  Sold out — no good seats')
             return []
         page.wait_for_selector('[aria-label="Seat Selection Map"]', timeout=10000)
     except Exception as e:
+        # Sold-out pages have no seat map, so wait_for_selector times out here.
+        # Re-check for the sold-out banner before treating it as a real error —
+        # a sold-out showing must return [] (writes empty) not None (skips write).
+        if is_sold_out(page):
+            print('  Sold out — no good seats')
+            return []
         print(f'  Could not load seat map: {e}')
         print(f'  Page URL: {page.url}')
         print(f'  Page title: {page.title()}')

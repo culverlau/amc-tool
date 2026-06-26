@@ -78,13 +78,11 @@ export default function App() {
               rowMax: i.rowMax || 'L',
               seatMin: Number(i.seatMin) || 7,
               seatMax: Number(i.seatMax) || 36,
+              availableSeats: i.availableSeats ?? null,
             })
           }
         }
-        setWatchlistItems(unique.map(i => ({
-          ...i,
-          availableSeats: i.availableSeats ?? null,
-        })))
+        setWatchlistItems(unique)
       })
       .catch(() => {})
   }, [])
