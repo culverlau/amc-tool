@@ -3,7 +3,7 @@ import requests
 import json
 import os
 import time
-from datetime import date
+from datetime import date, datetime
 from playwright.sync_api import sync_playwright
 
 WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
@@ -58,6 +58,36 @@ def is_past(name):
     if not m:
         return False
     return date.fromisoformat(m.group(1)) < date.today()
+
+
+def ordinal(n):
+    if 10 <= n % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f'{n}{suffix}'
+
+
+def format_detail(date_part, time_part):
+    # date_part is "YYYY-MM-DD", time_part is 24h "HH:MM" — render as
+    # "Fri · June 26th 2026 · 7:30 PM" for the notification body.
+    date_disp = date_part
+    if date_part:
+        try:
+            d = date.fromisoformat(date_part)
+            dow = d.strftime('%a')  # Mon, Tue, ...
+            date_disp = f'{dow} · {d.strftime("%B")} {ordinal(d.day)} {d.year}'
+        except ValueError:
+            pass
+    time_disp = time_part
+    if time_part:
+        m = re.match(r'^(\d{1,2}):(\d{2})', time_part)
+        if m:
+            try:
+                time_disp = datetime.strptime(m.group(0), '%H:%M').strftime('%-I:%M %p')
+            except ValueError:
+                pass
+    return ' · '.join(filter(None, [date_disp, time_disp]))
 
 
 def remove_from_watchlist(showtime_id):
@@ -227,7 +257,7 @@ def run():
             )
             date_part = next((p for p in parts if re.match(r'^\d{4}-\d{2}-\d{2}$', p)), '')
             time_part = next((p for p in parts if re.match(r'^\d{1,2}:\d{2}', p)), '')
-            detail = ' · '.join(filter(None, [date_part, time_part]))
+            detail = format_detail(date_part, time_part)
 
             if new_seats:
                 seat_str = ' '.join(sorted(new_seats))
