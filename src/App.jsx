@@ -13,7 +13,26 @@ export default function App() {
   const [watchlistItems, setWatchlistItems] = useState([])
   const [liveRtScores, setLiveRtScores] = useState(null) // Map<amcId, {rt, rtSlug}>
   const [pendingShowtime, setPendingShowtime] = useState(null)
-  const [view, setView] = useState('main') // 'main' | 'watchlist'
+  const [view, setView] = useState(
+    () => (window.location.hash === '#watchlist' ? 'watchlist' : 'main')
+  ) // driven by URL hash so the watchlist is bookmarkable / linkable
+
+  // Keep view in sync with the URL hash (back/forward button, direct links)
+  useEffect(() => {
+    const sync = () =>
+      setView(window.location.hash === '#watchlist' ? 'watchlist' : 'main')
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+
+  function openWatchlist() {
+    window.location.hash = 'watchlist'
+  }
+  function closeWatchlist() {
+    // Strip the hash without leaving a bare "#" or a dangling history entry
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    setView('main')
+  }
 
   const watchlist = useMemo(
     () => new Set(watchlistItems.map(i => String(i.showtimeId))),
@@ -214,7 +233,7 @@ export default function App() {
               Sheets ↗
             </a>
             <button
-              onClick={() => setView('watchlist')}
+              onClick={openWatchlist}
               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
                 watchlistItems.length > 0
                   ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
@@ -317,7 +336,7 @@ export default function App() {
           items={watchlistItems}
           movieNames={showtimeMovieNames}
           onRemove={removeFromWatchlist}
-          onClose={() => setView('main')}
+          onClose={closeWatchlist}
         />
       )}
     </div>
