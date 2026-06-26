@@ -49,7 +49,7 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
           items.map(item => {
             const parsed = parseLabel(item.name)
             const movieName = movieNames[String(item.showtimeId)] || parsed?.movieName || ''
-            const seats = item.availableSeats
+            const seats = item.availableSeats != null
               ? item.availableSeats.split(',').map(s => s.trim()).filter(Boolean)
               : null
 

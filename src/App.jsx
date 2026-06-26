@@ -83,7 +83,7 @@ export default function App() {
         }
         setWatchlistItems(unique.map(i => ({
           ...i,
-          availableSeats: i.availableSeats || '',
+          availableSeats: i.availableSeats ?? null,
         })))
       })
       .catch(() => {})
