@@ -191,23 +191,36 @@ def run():
             last_seen = set(state.get(sid, []))
             current_set = set(current)
             new_seats = current_set - last_seen
+            lost_seats = last_seen - current_set
+
+            parts = [p.strip() for p in name.split('·')]
+            movie = (
+                next((p for p in parts if p and not re.match(r'^\d{4}-', p) and 'AMC' not in p and ':' not in p), None)
+                or next((p for p in parts if p and not re.match(r'^\d{4}-', p) and ':' not in p), None)
+                or sid
+            )
+            date_part = next((p for p in parts if re.match(r'^\d{4}-\d{2}-\d{2}$', p)), '')
+            time_part = next((p for p in parts if re.match(r'^\d{1,2}:\d{2}', p)), '')
+            detail = ' · '.join(filter(None, [date_part, time_part]))
 
             if new_seats:
                 seat_str = ' '.join(sorted(new_seats))
                 total = len(current_set)
-                parts = [p.strip() for p in name.split('·')]
-                movie = next((p for p in parts if p and not re.match(r'^\d{4}-', p) and 'AMC' not in p and ':' not in p), sid)
-                date_part = next((p for p in parts if re.match(r'^\d{4}-\d{2}-\d{2}$', p)), '')
-                time_part = next((p for p in parts if re.match(r'^\d{1,2}:\d{2}', p)), '')
-                detail = ' · '.join(filter(None, [date_part, time_part]))
-                send_title = movie
                 send_body = f'{total} good seat(s) open — NEW: {seat_str}'
                 if detail:
                     send_body += f'\n{detail}'
                 print(f'  → {send_body}')
-                notify(send_title, send_body)
+                notify(movie, send_body)
+            elif lost_seats:
+                lost_str = ' '.join(sorted(lost_seats))
+                remaining = len(current_set)
+                send_body = f'LOST: {lost_str} — {remaining} good seat(s) remaining'
+                if detail:
+                    send_body += f'\n{detail}'
+                print(f'  → {send_body}')
+                notify(movie, send_body)
             else:
-                print(f'  {len(current_set)} good seat(s), no change')
+                print(f'  {len(current_set)} good seat(s) — no change')
 
             state[sid] = current
             save_state(state)
