@@ -1,4 +1,13 @@
+import { useEffect } from 'react'
+
 export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClose }) {
+  // Lock the page behind from scrolling while the watchlist is open
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   function parseLabel(name) {
     const parts = (name || '').split(' · ')
     const offset = parts.length >= 5 ? 1 : 0
@@ -36,8 +45,10 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
         </div>
       </header>
 
-      {/* Items */}
-      <div className="overflow-y-auto flex-1 p-4 max-w-2xl mx-auto w-full space-y-3">
+      {/* Items — the full-width area below the header scrolls; content is
+          centered inside it so scrolling over the side gutters works too. */}
+      <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
+        <div className="p-4 max-w-2xl mx-auto w-full space-y-3">
         {items.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-gray-500 text-sm">No showtimes being watched.</p>
@@ -102,6 +113,7 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
             )
           })
         )}
+        </div>
       </div>
     </div>
   )
