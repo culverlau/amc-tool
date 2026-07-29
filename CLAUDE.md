@@ -31,6 +31,7 @@ Python dependencies for scripts: `pip install requests playwright beautifulsoup4
 - `scripts/snipe_seats.py` — reads a Google Sheets watchlist, scrapes AMC seat pages with Playwright (plain `requests` is blocked by Cloudflare), finds available seats in the preferred zone, sends ntfy.sh push notifications, and writes the current available seats back to the Sheet (`updateSeats` action)
 - `sniper.yml` has **only `workflow_dispatch`** — there is no GitHub `schedule:` cron. It is triggered every ~5 minutes by an **external cron-job.org job** that calls the workflow dispatch. (So sniper runs show up as `workflow_dispatch`, not `schedule`.)
 - Sniper state persists between runs via `actions/cache`
+- **Expiry:** a watchlist row is skipped *and removed from the Sheet* once the showtime is more than 20 min past its start (tickets stop being worth buying). All date/time math uses `America/New_York` — the runner clock is UTC, so a naive `date.today()` makes evening ET showings look like tomorrow and deletes them a day early.
 
 ### Data flow
 ```

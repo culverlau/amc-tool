@@ -95,6 +95,13 @@ def get_format(showtime):
     return "Standard"
 
 
+def detect_captions(showtime):
+    # CLOSEDCAPTION = caption device available; OPENCAPTION = subtitles burned
+    # onto the screen for everyone. Both are worth surfacing, separately.
+    codes = {a["code"].upper() for a in showtime.get("attributes", [])}
+    return "CLOSEDCAPTION" in codes, "OPENCAPTION" in codes
+
+
 def detect_languages(showtime):
     langs = set()
     for a in showtime.get("attributes", []):
@@ -158,6 +165,8 @@ def run():
                 for lang in detect_languages(s):
                     movies[mid]["languages"].add(lang)
 
+                has_cc, has_oc = detect_captions(s)
+
                 movies[mid]["screenings"].append({
                     "showtimeId": s["id"],
                     "theaterId": theater_id,
@@ -165,6 +174,8 @@ def run():
                     "date": date_str,
                     "time": s["showDateTimeLocal"][11:16],
                     "format": fmt,
+                    "hasCC": has_cc,
+                    "hasOC": has_oc,
                     "isSoldOut": s.get("isSoldOut", False),
                     "isAlmostSoldOut": s.get("isAlmostSoldOut", False),
                     "purchaseUrl": s.get("purchaseUrl", ""),

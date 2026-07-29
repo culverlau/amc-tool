@@ -3,7 +3,8 @@ import requests
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
 
 WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
@@ -16,6 +17,13 @@ DEFAULT_SEAT_MIN = 7
 DEFAULT_SEAT_MAX = 36
 SKIP_ROWS = {'I'}  # skipped in AMC theater numbering
 SKIP_LABEL_KEYWORDS = {'Wheelchair Space', 'Wheelchair Companion'}
+
+# Showtimes are local to NYC. The runner's clock is UTC, so every date/time
+# comparison must be done in ET or evening showings look like they're tomorrow.
+NY_TZ = ZoneInfo('America/New_York')
+# You can still buy a ticket up to ~20 min after the posted start; past that
+# the showing is dead to us.
+LATE_GRACE = timedelta(minutes=20)
 
 
 def build_good_rows(row_min, row_max):
@@ -53,11 +61,30 @@ def fetch_watchlist():
     return None
 
 
+def showtime_start(name):
+    # name is "movie · theater · YYYY-MM-DD · HH:MM · format" — pull out the
+    # ET start datetime. Returns None if there's no parseable date.
+    dm = re.search(r'(\d{4}-\d{2}-\d{2})', name)
+    if not dm:
+        return None
+    try:
+        d = date.fromisoformat(dm.group(1))
+    except ValueError:
+        return None
+    tm = re.search(r'\b(\d{1,2}):(\d{2})\b', name)
+    hour, minute = 23, 59  # no time in the name → only expire after the day ends
+    if tm:
+        h, m = int(tm.group(1)), int(tm.group(2))
+        if h <= 23 and m <= 59:
+            hour, minute = h, m
+    return datetime(d.year, d.month, d.day, hour, minute, tzinfo=NY_TZ)
+
+
 def is_past(name):
-    m = re.search(r'(\d{4}-\d{2}-\d{2})', name)
-    if not m:
+    start = showtime_start(name)
+    if start is None:
         return False
-    return date.fromisoformat(m.group(1)) < date.today()
+    return datetime.now(NY_TZ) > start + LATE_GRACE
 
 
 def ordinal(n):
@@ -225,7 +252,7 @@ def run():
             print(f'\n{name}')
 
             if is_past(name):
-                print('  Showtime has passed — removing from watchlist')
+                print('  Started more than 20 min ago — removing from watchlist')
                 remove_from_watchlist(sid)
                 state.pop(sid, None)
                 continue

@@ -81,6 +81,24 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
     )
   }
 
+  function captionBadge(s, dim) {
+    // OC (subtitles on screen) is the more consequential one, so it wins if both are set.
+    const label = s.hasOC ? 'OC' : s.hasCC ? 'CC' : null
+    if (!label) return null
+    return (
+      <span
+        title={s.hasOC ? 'Open Caption — subtitles on screen' : 'Closed Caption device available'}
+        className={`text-[10px] font-semibold px-1 rounded border ${
+          dim
+            ? 'border-gray-700 text-gray-600'
+            : 'border-emerald-700/60 bg-emerald-900/40 text-emerald-300'
+        }`}
+      >
+        {label}
+      </span>
+    )
+  }
+
   function renderShowtime(s) {
     const fmtShort = formatShort(s.format)
     const isLincolnImax = s.theaterId === 2116 && s.format.includes('IMAX')
@@ -102,6 +120,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
           <span className="text-sm px-3 py-1.5 rounded-lg bg-gray-800/50 text-gray-600 line-through cursor-not-allowed inline-flex items-center gap-1.5">
             {formatTime(s.time)}
             {fmtShort && <span className="text-[10px] font-medium text-gray-700">{fmtShort}</span>}
+            {captionBadge(s, true)}
           </span>
           {starBtn}
         </div>
@@ -125,6 +144,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
               {fmtShort}
             </span>
           )}
+          {captionBadge(s, false)}
           {s.isAlmostSoldOut && <span className="text-[10px] text-orange-400">!</span>}
         </a>
         {starBtn}
