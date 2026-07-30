@@ -31,7 +31,17 @@ function formatShort(fmt) {
   if (fmt.includes('70mm')) return '70mm'
   if (fmt.includes('ScreenX')) return 'ScreenX'
   if (fmt.includes('4DX')) return '4DX'
-  return null
+  if (fmt.includes('PRIME')) return fmt.includes('3D') ? 'PRIME 3D' : 'PRIME'
+  if (fmt.includes('3D')) return '3D'
+  return null // Standard — deliberately unlabeled
+}
+
+// Chronological sort key. AMC groups a 12:30am show under the *previous*
+// business day, so treat pre-4am times as belonging to the end of that day
+// instead of letting "00:30" sort ahead of the noon shows.
+function showOrder(s) {
+  const [h, m] = s.time.split(':').map(Number)
+  return (h < 4 ? h + 24 : h) * 60 + m
 }
 
 function formatBadgeColor(fmt) {
@@ -82,19 +92,17 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
   }
 
   function captionBadge(s, dim) {
-    // OC (subtitles on screen) is the more consequential one, so it wins if both are set.
-    const label = s.hasOC ? 'OC' : s.hasCC ? 'CC' : null
-    if (!label) return null
+    if (!s.hasOC) return null
     return (
       <span
-        title={s.hasOC ? 'Open Caption — subtitles on screen' : 'Closed Caption device available'}
+        title="Open Caption — subtitles on screen"
         className={`text-[10px] font-semibold px-1 rounded border ${
           dim
             ? 'border-gray-700 text-gray-600'
             : 'border-emerald-700/60 bg-emerald-900/40 text-emerald-300'
         }`}
       >
-        {label}
+        OC
       </span>
     )
   }
@@ -308,7 +316,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             {THEATER_ORDER.map(theaterId => {
               const shows = byDate[activeDate]
                 .filter(s => s.theaterId === theaterId)
-                .sort((a, b) => a.time.localeCompare(b.time))
+                .sort((a, b) => showOrder(a) - showOrder(b))
               if (shows.length === 0) return null
               return (
                 <div key={theaterId}>
@@ -332,7 +340,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
             date,
             shows: byDate[date]
               .filter(s => s.theaterId === activeTheater)
-              .sort((a, b) => a.time.localeCompare(b.time)),
+              .sort((a, b) => showOrder(a) - showOrder(b)),
           }))
           .filter(({ shows }) => shows.length > 0)
 

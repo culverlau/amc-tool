@@ -95,11 +95,11 @@ def get_format(showtime):
     return "Standard"
 
 
-def detect_captions(showtime):
-    # CLOSEDCAPTION = caption device available; OPENCAPTION = subtitles burned
-    # onto the screen for everyone. Both are worth surfacing, separately.
+def has_open_caption(showtime):
+    # OPENCAPTION = subtitles burned onto the screen for everyone. (CLOSEDCAPTION
+    # is just "a caption device is available" and sits on most showtimes — noise.)
     codes = {a["code"].upper() for a in showtime.get("attributes", [])}
-    return "CLOSEDCAPTION" in codes, "OPENCAPTION" in codes
+    return "OPENCAPTION" in codes
 
 
 def detect_languages(showtime):
@@ -165,17 +165,19 @@ def run():
                 for lang in detect_languages(s):
                     movies[mid]["languages"].add(lang)
 
-                has_cc, has_oc = detect_captions(s)
-
+                # date_str is AMC's *business* day: a 12:30am show is returned by
+                # the query for the previous calendar date, which is how we want it
+                # grouped. startsAt keeps the true local datetime, since anything
+                # doing real time math (sniper expiry, sorting) needs it.
                 movies[mid]["screenings"].append({
                     "showtimeId": s["id"],
                     "theaterId": theater_id,
                     "theaterName": theater_name,
                     "date": date_str,
                     "time": s["showDateTimeLocal"][11:16],
+                    "startsAt": s["showDateTimeLocal"],
                     "format": fmt,
-                    "hasCC": has_cc,
-                    "hasOC": has_oc,
+                    "hasOC": has_open_caption(s),
                     "isSoldOut": s.get("isSoldOut", False),
                     "isAlmostSoldOut": s.get("isAlmostSoldOut", False),
                     "purchaseUrl": s.get("purchaseUrl", ""),

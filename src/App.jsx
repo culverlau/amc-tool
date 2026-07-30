@@ -124,7 +124,11 @@ export default function App() {
   function confirmStar(zone) {
     const s = pendingShowtime
     const id = String(s.showtimeId)
-    const name = `${s.movieName || ''} · ${s.theaterName} · ${s.date} · ${s.time} · ${s.format}`
+    // s.date is AMC's business day, so a 12:30am show carries the *previous*
+    // date — pair that with s.time and the sniper thinks it started 24h early
+    // and drops it from the watchlist. startsAt is the true local datetime.
+    const showDate = s.startsAt ? s.startsAt.slice(0, 10) : s.date
+    const name = `${s.movieName || ''} · ${s.theaterName} · ${showDate} · ${s.time} · ${s.format}`
     const item = { showtimeId: id, name, ...zone }
     setWatchlistItems(prev => [...prev, item])
     setPendingShowtime(null)
