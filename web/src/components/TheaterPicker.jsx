@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { searchTheaters, followTheater, unfollowTheater } from '@amc/shared'
+import { searchTheaters, followTheater, unfollowTheater, triggerShowtimeFetch } from '@amc/shared'
 import { supabase } from '../supabase'
 
 export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
@@ -7,6 +7,8 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [pending, setPending] = useState(null) // amc_id currently being toggled
+  const [fetching, setFetching] = useState(null) // amc_id currently triggering a fetch
+  const [fetchStatus, setFetchStatus] = useState({}) // amc_id -> 'requested' | 'failed'
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -34,11 +36,25 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
       } else {
         await followTheater(supabase, theater.amc_id)
         onFollowedChange([...followed, theater])
+        requestFetch(theater.amc_id)
       }
     } catch (e) {
       console.error('[theaters] toggle failed', e)
     } finally {
       setPending(null)
+    }
+  }
+
+  async function requestFetch(amcId) {
+    setFetching(amcId)
+    try {
+      await triggerShowtimeFetch(supabase, amcId)
+      setFetchStatus((s) => ({ ...s, [amcId]: 'requested' }))
+    } catch (e) {
+      console.error('[theaters] fetch trigger failed', e)
+      setFetchStatus((s) => ({ ...s, [amcId]: 'failed' }))
+    } finally {
+      setFetching(null)
     }
   }
 
@@ -77,25 +93,48 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
           )}
           {results.map((t) => {
             const isFollowed = followedIds.has(t.amc_id)
+            const followedTheater = followed.find((f) => f.amc_id === t.amc_id)
+            const neverFetched = isFollowed && !followedTheater?.last_fetched_at
+            const status = fetchStatus[t.amc_id]
             return (
-              <button
-                key={t.amc_id}
-                onClick={() => toggle(t)}
-                disabled={pending === t.amc_id}
-                className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${
-                  isFollowed ? 'bg-red-900/20 border border-red-800/40' : 'bg-gray-900 border border-gray-800 hover:border-gray-700'
-                }`}
-              >
-                <div className="min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{t.name}</p>
-                  <p className="text-gray-500 text-xs">{[t.city, t.state].filter(Boolean).join(', ')}</p>
-                </div>
-                <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg ${
-                  isFollowed ? 'text-red-300' : 'text-gray-500'
-                }`}>
-                  {isFollowed ? 'Following' : 'Follow'}
-                </span>
-              </button>
+              <div key={t.amc_id} className="space-y-1.5">
+                <button
+                  onClick={() => toggle(t)}
+                  disabled={pending === t.amc_id}
+                  className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${
+                    isFollowed ? 'bg-red-900/20 border border-red-800/40' : 'bg-gray-900 border border-gray-800 hover:border-gray-700'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{t.name}</p>
+                    <p className="text-gray-500 text-xs">{[t.city, t.state].filter(Boolean).join(', ')}</p>
+                  </div>
+                  <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg ${
+                    isFollowed ? 'text-red-300' : 'text-gray-500'
+                  }`}>
+                    {isFollowed ? 'Following' : 'Follow'}
+                  </span>
+                </button>
+                {isFollowed && neverFetched && (
+                  <div className="px-4 flex items-center gap-2 text-xs">
+                    {fetching === t.amc_id ? (
+                      <span className="text-gray-500">Requesting showtimes...</span>
+                    ) : status === 'requested' ? (
+                      <span className="text-green-400">Showtimes requested — check back in a minute or two</span>
+                    ) : (
+                      <>
+                        {status === 'failed' && <span className="text-red-400">Failed to request.</span>}
+                        <button
+                          onClick={() => requestFetch(t.amc_id)}
+                          className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                        >
+                          Get showtimes now
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>

@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:
+    inputs:
+      theater_ids:
+        description: 'Comma-separated AMC theater ids to fetch (default: all followed theaters)'
+        required: false
 
 jobs:
   fetch:
@@ -28,4 +32,4 @@ jobs:
           AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/fetch_showtimes.py
+        run: python scripts/fetch_showtimes.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }}

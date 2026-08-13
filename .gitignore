@@ -8,3 +8,4 @@ sniper_state.json
 .env
 *.local
 omdb_api.txt
+supabase/.temp/
