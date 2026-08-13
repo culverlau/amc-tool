@@ -15,6 +15,23 @@ export async function getProfile(sb) {
 }
 
 /** Only preference columns; status and snipe_cap are rejected by a DB trigger. */
+/** Swaps in a fresh random ntfy topic — e.g. if a user suspects theirs has
+ * leaked (ntfy topics are unlisted but not access-controlled: anyone who
+ * knows the name can subscribe). */
+export async function regenerateNtfyTopic(sb) {
+  const { data: { user } } = await sb.auth.getUser()
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+  const topic = 'amc-' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  const { data, error } = await sb
+    .from('profiles')
+    .update({ ntfy_topic: topic })
+    .eq('id', user.id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function updateSeatZoneDefaults(sb, zone) {
   const { data: { user } } = await sb.auth.getUser()
   const { data, error } = await sb

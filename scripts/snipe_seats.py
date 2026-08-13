@@ -28,10 +28,12 @@ from seat_zone import filter_seats_to_zone, sort_seats
 
 EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
-# ntfy path from the single-tenant version, kept behind a debug flag: it works
-# today and lets the pipeline be verified before the first EAS build exists.
-# Set SNIPER_DEBUG_NTFY_TOPIC to a personal ntfy.sh topic to use it; unset to
-# disable entirely once Expo push is confirmed working.
+# Real per-user delivery is each user's own profiles.ntfy_topic (see
+# send_ntfy / dispatch_for_row) — the interim channel until the Expo app
+# ships and push_tokens has real registrations. This one is separate: an
+# optional personal mirror of every notification, for verifying the pipeline
+# end-to-end. Set SNIPER_DEBUG_NTFY_TOPIC to a personal ntfy.sh topic; unset
+# to disable.
 DEBUG_NTFY_TOPIC = os.environ.get('SNIPER_DEBUG_NTFY_TOPIC')
 
 SKIP_ROWS = {'I'}  # skipped in AMC theater numbering — never a real row
@@ -76,7 +78,7 @@ def fetch_active_watchlist():
     rows = sb.select_all('watchlist', {
         'select': 'id,user_id,showtime_id,theater_id,movie_name,starts_at,format,'
                   'row_min,row_max,seat_min,seat_max,'
-                  'profiles!inner(status),theaters!inner(utc_offset,name)',
+                  'profiles!inner(status,ntfy_topic),theaters!inner(utc_offset,name)',
         'profiles.status': 'eq.active',
         'starts_at': f'gt.{cutoff}',
         'order': 'starts_at.asc',
@@ -286,18 +288,21 @@ def send_expo_push(tokens, title, body):
         print(f'  Expo push failed: {e}')
 
 
-def send_debug_ntfy(title, body):
-    if not DEBUG_NTFY_TOPIC:
+def send_ntfy(topic, title, body):
+    """Interim per-user delivery channel until the Expo app ships and
+    push_tokens has real registrations — each user subscribes to their own
+    profiles.ntfy_topic in the free ntfy app."""
+    if not topic:
         return
     try:
         requests.post(
-            f'https://ntfy.sh/{DEBUG_NTFY_TOPIC}',
+            f'https://ntfy.sh/{topic}',
             data=body.encode(),
             headers={'Title': title, 'Priority': 'high', 'Tags': 'movie_camera'},
             timeout=10,
         )
     except Exception as e:
-        print(f'  debug ntfy failed: {e}')
+        print(f'  ntfy send failed ({topic}): {e}')
 
 
 def dispatch_for_row(row, scrape_result, dry_run=False):
@@ -341,7 +346,8 @@ def dispatch_for_row(row, scrape_result, dry_run=False):
 
     if not dry_run and not is_debug:
         send_expo_push(get_push_tokens(row['user_id']), title, body)
-        send_debug_ntfy(title, body)
+        send_ntfy((row.get('profiles') or {}).get('ntfy_topic'), title, body)
+        send_ntfy(DEBUG_NTFY_TOPIC, title, body)
         record_notification(row['user_id'], row['showtime_id'], zone_seats)
 
     return True
