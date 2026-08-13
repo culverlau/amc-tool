@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DEFAULT_ZONE } from '@amc/shared'
 
 function formatShowtimeLabel(s) {
   const [y, mo, d] = s.date.split('-').map(Number)
@@ -13,10 +14,10 @@ function formatShowtimeLabel(s) {
 }
 
 export default function StarDialog({ showtime, defaultZone, onConfirm, onCancel }) {
-  const [rowMin, setRowMin] = useState(defaultZone?.row_min ?? 'E')
-  const [rowMax, setRowMax] = useState(defaultZone?.row_max ?? 'L')
-  const [seatMin, setSeatMin] = useState(defaultZone?.seat_min ?? 7)
-  const [seatMax, setSeatMax] = useState(defaultZone?.seat_max ?? 36)
+  const [rowMin, setRowMin] = useState(defaultZone?.row_min ?? DEFAULT_ZONE.row_min)
+  const [rowMax, setRowMax] = useState(defaultZone?.row_max ?? DEFAULT_ZONE.row_max)
+  const [seatMin, setSeatMin] = useState(defaultZone?.seat_min ?? DEFAULT_ZONE.seat_min)
+  const [seatMax, setSeatMax] = useState(defaultZone?.seat_max ?? DEFAULT_ZONE.seat_max)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
 

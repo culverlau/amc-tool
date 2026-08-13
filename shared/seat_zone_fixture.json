@@ -1,0 +1,26 @@
+{
+  "parse": [
+    { "input": "F22", "expected": { "row": "F", "number": 22 } },
+    { "input": "aa5", "expected": { "row": "AA", "number": 5 } },
+    { "input": "  G3 ", "expected": { "row": "G", "number": 3 } },
+    { "input": "not-a-seat", "expected": null },
+    { "input": "", "expected": null }
+  ],
+  "zone": [
+    { "seat": "F22", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": true },
+    { "seat": "D22", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": false },
+    { "seat": "M22", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": false },
+    { "seat": "E7", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": true },
+    { "seat": "L36", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": true },
+    { "seat": "E6", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": false },
+    { "seat": "L37", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": false },
+    { "seat": "not-a-seat", "zone": { "row_min": "E", "row_max": "L", "seat_min": 7, "seat_max": 36 }, "expected": false },
+    { "seat": "F22", "zone": { "row_min": "E", "row_max": "L" }, "expected": false, "note": "missing seat_min/seat_max must fail closed, not throw" },
+    { "seat": "AA5", "zone": { "row_min": "A", "row_max": "Z", "seat_min": 1, "seat_max": 10 }, "expected": false, "note": "documented shared limitation: multi-letter row rejected by length pre-check even though numerically it would be 'after' Z" }
+  ],
+  "sort": [
+    { "input": ["G5", "F22", "F3"], "expected": ["F3", "F22", "G5"] },
+    { "input": ["B1", "A2", "A1"], "expected": ["A1", "A2", "B1"] },
+    { "input": [], "expected": [] }
+  ]
+}

@@ -71,6 +71,23 @@ def expire_past_showtimes(dry_run=False):
     sb.delete('notifications_sent', {'showtime_id': f'in.({id_list})'})
 
 
+ALERT_HISTORY_RETENTION = timedelta(days=30)
+
+
+def expire_old_notification_history(dry_run=False):
+    """User-facing alert history log — separate from notifications_sent (the
+    dedupe cache expired above), so it has its own independent 30-day
+    retention rather than being tied to showtime expiry."""
+    cutoff = (datetime.now(timezone.utc) - ALERT_HISTORY_RETENTION).strftime('%Y-%m-%dT%H:%M:%SZ')
+    old = sb.select('notification_history', {'select': 'id', 'sent_at': f'lte.{cutoff}'})
+    if not old:
+        return
+    print(f'Expiring {len(old)} notification history row(s) older than 30 days')
+    if dry_run:
+        return
+    sb.delete('notification_history', {'sent_at': f'lte.{cutoff}'})
+
+
 def fetch_active_watchlist():
     """Rows for active users whose showtime hasn't expired yet, each carrying
     its theater's utc_offset (for notification formatting)."""
@@ -254,6 +271,18 @@ def record_notification(user_id, showtime_id, seats):
     }], on_conflict='user_id,showtime_id')
 
 
+def record_notification_history(user_id, showtime_id, movie_name, seats):
+    """Append-only, unlike record_notification — every alert gets its own row
+    so the user can browse past alerts, not just the latest state."""
+    sb.upsert('notification_history', [{
+        'user_id': user_id,
+        'showtime_id': showtime_id,
+        'movie_name': movie_name,
+        'seats': seats,
+        'sent_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }])
+
+
 _push_token_cache = {}
 
 
@@ -349,6 +378,7 @@ def dispatch_for_row(row, scrape_result, dry_run=False):
         send_ntfy((row.get('profiles') or {}).get('ntfy_topic'), title, body)
         send_ntfy(DEBUG_NTFY_TOPIC, title, body)
         record_notification(row['user_id'], row['showtime_id'], zone_seats)
+        record_notification_history(row['user_id'], row['showtime_id'], row['movie_name'], zone_seats)
 
     return True
 
@@ -367,6 +397,7 @@ def run(dry_run=False, showtime_id_overrides=None):
         } for sid in showtime_ids]
     else:
         expire_past_showtimes(dry_run=dry_run)
+        expire_old_notification_history(dry_run=dry_run)
         watchlist_rows = fetch_active_watchlist()
         showtime_ids = sorted({r['showtime_id'] for r in watchlist_rows},
                                key=lambda sid: next(r['starts_at'] for r in watchlist_rows if r['showtime_id'] == sid))

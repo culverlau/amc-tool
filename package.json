@@ -16,6 +16,7 @@
     "fetch-data": "python3 scripts/fetch_showtimes.py",
     "sync-theaters": "python3 scripts/sync_theaters.py",
     "refresh-rt": "python3 scripts/refresh_rt_scores.py",
-    "snipe": "python3 scripts/snipe_seats.py"
+    "snipe": "python3 scripts/snipe_seats.py",
+    "test:seats": "node shared/src/seats.test.mjs"
   }
 }

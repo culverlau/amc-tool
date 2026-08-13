@@ -14,7 +14,20 @@ export async function getProfile(sb) {
   return data
 }
 
-/** Only preference columns; status and snipe_cap are rejected by a DB trigger. */
+/** Marks the first-run onboarding flow as done (skipped or finished — both
+ * count, since the point is not showing it again). */
+export async function completeOnboarding(sb) {
+  const { data: { user } } = await sb.auth.getUser()
+  const { data, error } = await sb
+    .from('profiles')
+    .update({ onboarded_at: new Date().toISOString() })
+    .eq('id', user.id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 /** Swaps in a fresh random ntfy topic — e.g. if a user suspects theirs has
  * leaked (ntfy topics are unlisted but not access-controlled: anyone who
  * knows the name can subscribe). */
@@ -32,6 +45,7 @@ export async function regenerateNtfyTopic(sb) {
   return data
 }
 
+/** Only preference columns; status and snipe_cap are rejected by a DB trigger. */
 export async function updateSeatZoneDefaults(sb, zone) {
   const { data: { user } } = await sb.auth.getUser()
   const { data, error } = await sb
@@ -103,6 +117,18 @@ export async function triggerShowtimeFetch(sb, amcId) {
  * array (possibly empty) once it has — the UI distinguishes "no data yet" from
  * "nothing open right now".
  */
+/** Past 30 days of seat alerts (older rows are expired server-side by
+ * scripts/snipe_seats.py). Separate from the watchlist itself. */
+export async function getAlertHistory(sb, limit = 50) {
+  const { data, error } = await sb
+    .from('notification_history')
+    .select('*')
+    .order('sent_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data || []
+}
+
 export async function getWatchlist(sb) {
   const { data: rows, error } = await sb
     .from('watchlist')
@@ -198,4 +224,44 @@ export async function listPushTokens(sb) {
 export async function removePushToken(sb, id) {
   const { error } = await sb.from('push_tokens').delete().eq('id', id)
   if (error) throw error
+}
+
+// ------------------------------------------------------------------- admin
+// All of these only work for the hardcoded admin email — enforced by RLS
+// (supabase/migrations/0005_admin_rls.sql), not by anything in this file.
+
+export async function listAllProfiles(sb) {
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, email, display_name, status, snipe_cap, created_at')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function updateUserStatus(sb, userId, status) {
+  const { error } = await sb.from('profiles').update({ status }).eq('id', userId)
+  if (error) throw error
+}
+
+export async function updateUserSnipeCap(sb, userId, snipeCap) {
+  const { error } = await sb.from('profiles').update({ snipe_cap: snipeCap }).eq('id', userId)
+  if (error) throw error
+}
+
+export async function getAppSettings(sb) {
+  const { data, error } = await sb.from('app_settings').select('*').single()
+  if (error) throw error
+  return data
+}
+
+export async function updateAppSettings(sb, settings) {
+  const { data, error } = await sb
+    .from('app_settings')
+    .update(settings)
+    .eq('id', true)
+    .select()
+    .single()
+  if (error) throw error
+  return data
 }

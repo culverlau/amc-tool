@@ -5,9 +5,12 @@ import StarDialog from './components/StarDialog'
 import WatchlistPanel from './components/WatchlistPanel'
 import TheaterPicker from './components/TheaterPicker'
 import Settings from './components/Settings'
+import Onboarding from './components/Onboarding'
+import Admin from './components/Admin'
 import { SignInScreen, WaitlistScreen, LoadingScreen } from './components/AuthGate'
 import { useAuth } from './useAuth'
 import { supabase, SUPABASE_URL } from './supabase'
+import { ADMIN_EMAIL } from './config'
 import {
   getFollowedTheaters,
   getWatchlist,
@@ -30,16 +33,18 @@ function hashToView(hash) {
   if (hash === '#watchlist') return 'watchlist'
   if (hash === '#theaters') return 'theaters'
   if (hash === '#settings') return 'settings'
+  if (hash === '#admin') return 'admin'
   return 'main'
 }
 
 export default function App() {
-  const { loading, session, profile, signInWithGoogle, signOut } = useAuth()
+  const { loading, session, profile, setProfile, signInWithGoogle, signOut } = useAuth()
 
   if (loading) return <LoadingScreen />
   if (!session) return <SignInScreen onSignIn={signInWithGoogle} />
   if (!profile) return <LoadingScreen />
   if (profile.status === 'waitlisted') return <WaitlistScreen onSignOut={signOut} />
+  if (!profile.onboarded_at) return <Onboarding profile={profile} onDone={setProfile} />
 
   return <MainApp initialProfile={profile} onSignOut={signOut} />
 }
@@ -208,6 +213,14 @@ function MainApp({ initialProfile, onSignOut }) {
               >
                 Settings
               </button>
+              {profile.email === ADMIN_EMAIL && (
+                <button
+                  onClick={() => goTo('admin')}
+                  className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+                >
+                  Admin
+                </button>
+              )}
               <button
                 onClick={() => goTo('watchlist')}
                 className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
@@ -347,6 +360,10 @@ function MainApp({ initialProfile, onSignOut }) {
           onClose={closeOverlay}
           onSignOut={onSignOut}
         />
+      )}
+
+      {view === 'admin' && profile.email === ADMIN_EMAIL && (
+        <Admin onClose={closeOverlay} />
       )}
     </div>
   )

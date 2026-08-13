@@ -30,6 +30,7 @@ export function useAuth() {
     loading: session === undefined || (session && profile === null && !profileError),
     session,
     profile,
+    setProfile,
     profileError,
     signInWithGoogle: () => supabase.auth.signInWithOAuth({ provider: 'google' }),
     signOut: () => supabase.auth.signOut(),

@@ -1,0 +1,32 @@
+name: Test
+
+# Pure logic tests (seat-zone matching) — no secrets, no external calls. Runs
+# on every push/PR so the Python/JS seat_zone.py <-> seats.js parity fixture
+# actually catches drift instead of silently going stale.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test seat_zone.py
+        run: python3 scripts/test_seat_zone.py
+
+      - name: Test seats.js
+        run: npm run test:seats

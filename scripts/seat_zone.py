@@ -22,8 +22,11 @@ def seat_in_zone(name, zone):
         return False
     row_min = str(zone.get("row_min", "")).upper()
     row_max = str(zone.get("row_max", "")).upper()
-    seat_min = int(zone.get("seat_min"))
-    seat_max = int(zone.get("seat_max"))
+    try:
+        seat_min = int(zone.get("seat_min"))
+        seat_max = int(zone.get("seat_max"))
+    except (TypeError, ValueError):
+        return False
 
     if len(seat["row"]) < len(row_min) or len(seat["row"]) > len(row_max):
         return False
