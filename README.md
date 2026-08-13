@@ -1,4 +1,4 @@
-# AMC Showtimes
+# NYC Showtimes
 
 Browse AMC showtimes at any theater you follow, star any showing, and get a push notification
 when seats open up in your preferred zone.

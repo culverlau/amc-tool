@@ -180,7 +180,7 @@ function MainApp({ initialProfile, onSignOut }) {
       <header className="px-4 pt-6 pb-4 max-w-5xl mx-auto">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">AMC Showtimes</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">NYC Showtimes</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {followedTheaters === null
                 ? ' '
