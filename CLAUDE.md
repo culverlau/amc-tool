@@ -16,13 +16,24 @@ npm run snipe            # run the seat sniper manually
 
 Python dependencies: `pip install -r scripts/requirements.txt` + `python3 -m playwright install chromium`.
 
+## Local environment
+
+This is Culver's **personal** project — its Google Cloud project (`amc-tool-505400`, for the
+Google OAuth client) lives under his personal `culverlau@gmail.com` account, entirely separate
+from his work GCP account/projects. Before running any `gcloud` command for this project,
+switch to the `personal` CLI configuration (`gcloud config configurations activate personal`)
+— never run it under the `default` (work) configuration. Check with `gcloud config
+configurations list` if unsure which is active.
+
 ## Architecture
 
 This was originally a single-tenant personal tool (one Google Sheet, 4 hardcoded NYC theaters,
-GitHub Pages). It's being converted to multi-user: individual accounts, each with their own
-followed theaters (any AMC nationwide), watchlist, and seat-zone preferences, with mobile push
-as the only notification channel. See `/Users/culver/.claude/plans/so-i-think-i-hashed-thunder.md`
-for the full plan this migration follows.
+GitHub Pages). It's now multi-user: individual accounts (soft-launch waitlisted via
+`app_settings.max_active_users`), each with their own followed theaters (any AMC nationwide),
+watchlist, and seat-zone preferences. Mobile push (Expo) is the intended long-term-only
+notification channel; per-user ntfy.sh is the interim one until the Expo app ships. See
+`/Users/culver/.claude/plans/so-i-think-i-hashed-thunder.md` for the original migration plan
+(mostly done at this point — check "Not yet built" below for what's left).
 
 **Repo layout (npm workspaces):**
 - `web/` — the React + Vite + Tailwind SPA (formerly at the repo root)
@@ -99,9 +110,15 @@ the single shape the UI consumes.
 - Expiry: a watchlist row is skipped and deleted once its showtime is >20 min past `starts_at`.
   Since `starts_at` is UTC, this is correct regardless of theater timezone with no ET-specific
   math (the old single-tenant version needed `America/New_York` handling for exactly this reason).
-- Notifications go out via Expo Push (`push_tokens` table) — **once the Expo app exists**. Until
-  then, `SNIPER_DEBUG_NTFY_TOPIC` (env var / GitHub secret) optionally mirrors notifications to a
-  personal ntfy.sh topic for testing the pipeline end-to-end.
+- Real per-user notifications currently go out via ntfy.sh: every profile gets its own random
+  `ntfy_topic` (`profiles.ntfy_topic`, set at signup), and `scripts/snipe_seats.py` sends each
+  alert to the watching user's own topic — the interim channel until the Expo app exists and
+  `push_tokens` has real registrations (Expo Push is already wired up and will take over once
+  devices register). `SNIPER_DEBUG_NTFY_TOPIC` (env var / GitHub secret) is separate — an
+  optional personal mirror of every notification, for verifying the pipeline end-to-end.
+- Every alert is also appended to `notification_history` (separate from the `notifications_sent`
+  dedupe cache) so users can browse past alerts in Settings; rows older than 30 days are deleted
+  by `expire_old_notification_history()`, called alongside `expire_past_showtimes()` every cycle.
 - `sniper.yml` has **only `workflow_dispatch`** — no GitHub `schedule:`. It's triggered every ~5
   min by an external cron-job.org job.
 
@@ -116,12 +133,29 @@ the single shape the UI consumes.
   the one shared scrape — see `scripts/seat_zone.py` (a deliberate Python port of
   `shared/src/seats.js`; keep both in sync if the zone logic changes).
 
+### Onboarding, alert history, and admin
+
+- New signups see a first-run onboarding flow (`web/src/components/Onboarding.jsx`, gated on
+  `profiles.onboarded_at` being null) — welcome, follow a theater, set up ntfy alerts. Skippable;
+  skipping still marks `onboarded_at` so it isn't shown again.
+- Settings shows a 30-day alert history (`AlertHistory.jsx` / `notification_history` table).
+- A single hardcoded admin (`web/src/config.js` `ADMIN_EMAIL`) gets an Admin nav item and screen
+  (`Admin.jsx`): pipeline health (reads GitHub's public Actions API client-side, no token
+  needed since the repo is public), `app_settings` editing, waitlist promotion, and per-user
+  `snipe_cap` overrides. UI gating is cosmetic only — the actual enforcement is RLS policies in
+  `supabase/migrations/0005_admin_rls.sql` keyed on the same email via `auth.jwt() ->> 'email'`.
+
+### `seat_zone.py` / `seats.js` parity
+
+Both implementations are tested against one shared fixture (`shared/seat_zone_fixture.json`) —
+`scripts/test_seat_zone.py` and `shared/src/seats.test.mjs` (`npm run test:seats`), run in CI on
+every push (`.github/workflows/test.yml`). Update the fixture, not just one side, when the
+zone-matching logic changes.
+
 ### Not yet built (see the plan doc)
 
 - The Expo app (`app/`) — screens, push registration, EAS build/TestFlight.
 - Web push / Sign in with Apple.
-- Google OAuth provider configuration in the live Supabase project (needs a Google Cloud OAuth
-  client — the one unavoidable piece of GCP for this project).
 
 ## Secrets
 
