@@ -283,7 +283,7 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
         if not dry_run:
             import supabase_client as sb
             sb.storage_upload(STORAGE_BUCKET, filename, payload)
-            sb.upsert("theaters", [{"amc_id": theater_id, "last_fetched_at": now}], on_conflict="amc_id")
+            sb.update("theaters", {"amc_id": f"eq.{theater_id}"}, {"last_fetched_at": now})
 
         index[str(theater_id)] = {
             "name": theater_name,

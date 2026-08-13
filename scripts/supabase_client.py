@@ -96,6 +96,22 @@ def upsert(table, rows, on_conflict=None):
     return r.json() if r.text else []
 
 
+def update(table, params, values):
+    """PATCH matching rows with `values`. `params` must be non-empty — PostgREST
+    would otherwise happily overwrite the whole table."""
+    _require_config()
+    if not params:
+        raise SupabaseError("update requires a filter")
+    r = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=_headers({"Prefer": "return=minimal"}),
+        params=params,
+        data=json.dumps(values),
+        timeout=TIMEOUT,
+    )
+    _check(r, f"update {table}")
+
+
 def delete(table, params):
     """DELETE matching rows. `params` must be non-empty — PostgREST would
     otherwise happily delete the whole table."""
