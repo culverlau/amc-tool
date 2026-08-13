@@ -1,14 +1,16 @@
-name: Refresh RT Scores
+name: Sync Theaters
 
+# Refreshes the `theaters` table from AMC's ~550-theater directory. This is
+# what the in-app theater picker searches — run infrequently since the
+# directory itself rarely changes.
 on:
   schedule:
-    - cron: '0 8 * * *'   # daily at 8am UTC
+    - cron: '0 6 * * 1'   # weekly, Monday 6am UTC
   workflow_dispatch:
 
 jobs:
-  refresh:
+  sync:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -20,9 +22,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Refresh RT scores
+      - name: Sync theaters
         env:
           AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/refresh_rt_scores.py
+        run: python scripts/sync_theaters.py

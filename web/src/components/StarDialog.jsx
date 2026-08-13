@@ -12,16 +12,29 @@ function formatShowtimeLabel(s) {
   return { theater, dateStr, timeStr, format: s.format.replace(' at AMC', '') }
 }
 
-export default function StarDialog({ showtime, onConfirm, onCancel }) {
-  const [rowMin, setRowMin] = useState('E')
-  const [rowMax, setRowMax] = useState('L')
-  const [seatMin, setSeatMin] = useState(7)
-  const [seatMax, setSeatMax] = useState(36)
+export default function StarDialog({ showtime, defaultZone, onConfirm, onCancel }) {
+  const [rowMin, setRowMin] = useState(defaultZone?.row_min ?? 'E')
+  const [rowMax, setRowMax] = useState(defaultZone?.row_max ?? 'L')
+  const [seatMin, setSeatMin] = useState(defaultZone?.seat_min ?? 7)
+  const [seatMax, setSeatMax] = useState(defaultZone?.seat_max ?? 36)
+  const [error, setError] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   const { theater, dateStr, timeStr, format } = formatShowtimeLabel(showtime)
 
-  function handleConfirm() {
-    onConfirm({ rowMin: rowMin.toUpperCase(), rowMax: rowMax.toUpperCase(), seatMin: Number(seatMin), seatMax: Number(seatMax) })
+  async function handleConfirm() {
+    setError(null)
+    setSaving(true)
+    try {
+      await onConfirm({
+        row_min: rowMin.toUpperCase(), row_max: rowMax.toUpperCase(),
+        seat_min: Number(seatMin), seat_max: Number(seatMax),
+      })
+    } catch (e) {
+      setError(e.message || 'Could not add to watchlist')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -85,6 +98,10 @@ export default function StarDialog({ showtime, onConfirm, onCancel }) {
           You'll be notified when seats open in this zone.
         </p>
 
+        {error && (
+          <p className="text-xs text-red-400 mt-3">{error}</p>
+        )}
+
         <div className="flex gap-2 mt-5">
           <button
             onClick={onCancel}
@@ -94,9 +111,10 @@ export default function StarDialog({ showtime, onConfirm, onCancel }) {
           </button>
           <button
             onClick={handleConfirm}
-            className="flex-1 py-2 rounded-lg text-sm text-white bg-red-700 hover:bg-red-600 transition-colors font-medium"
+            disabled={saving}
+            className="flex-1 py-2 rounded-lg text-sm text-white bg-red-700 hover:bg-red-600 transition-colors font-medium disabled:opacity-50"
           >
-            Watch
+            {saving ? 'Saving...' : 'Watch'}
           </button>
         </div>
       </div>

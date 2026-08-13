@@ -1,5 +1,9 @@
 name: Seat Sniper
 
+# Triggered every ~5 minutes by an external cron-job.org job calling
+# workflow_dispatch — there is no GitHub `schedule:` here. Sniper state
+# (per-user notification dedupe) lives in Postgres now, not a cached file,
+# so this workflow no longer needs actions/cache for anything but Playwright.
 on:
   workflow_dispatch:
 
@@ -8,13 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore sniper state
-        uses: actions/cache@v4
-        with:
-          path: sniper_state.json
-          key: sniper-state-${{ github.run_id }}
-          restore-keys: sniper-state-
 
       - name: Cache pip packages
         uses: actions/cache@v4
@@ -30,17 +27,15 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-1.60.0
 
       - name: Install Python dependencies
-        run: pip install requests playwright==1.60.0
+        run: pip install -r scripts/requirements.txt
 
       - name: Install Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: python -m playwright install chromium
 
       - name: Run seat sniper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SNIPER_DEBUG_NTFY_TOPIC: ${{ secrets.SNIPER_DEBUG_NTFY_TOPIC }}
         run: python scripts/snipe_seats.py
-
-      - name: Save sniper state
-        uses: actions/cache@v4
-        with:
-          path: sniper_state.json
-          key: sniper-state-${{ github.run_id }}

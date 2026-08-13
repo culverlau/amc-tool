@@ -1,31 +1,19 @@
 import { useEffect } from 'react'
 
-export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClose }) {
+function formatStartsAt(iso) {
+  const d = new Date(iso)
+  const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return { dateStr, timeStr }
+}
+
+export default function WatchlistPanel({ items, theaterNames = {}, onRemove, onClose }) {
   // Lock the page behind from scrolling while the watchlist is open
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [])
-
-  function parseLabel(name) {
-    const parts = (name || '').split(' · ')
-    const offset = parts.length >= 5 ? 1 : 0
-    if (parts.length >= 4) {
-      const movieName = offset ? parts[0] : ''
-      const theater = parts[offset].replace(/^AMC /, '')
-      const [y, mo, d] = parts[offset + 1].split('-').map(Number)
-      const date = new Date(y, mo - 1, d)
-      const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-      const [h, m] = parts[offset + 2].split(':').map(Number)
-      const ampm = h >= 12 ? 'PM' : 'AM'
-      const h12 = h % 12 || 12
-      const timeStr = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`
-      const format = parts[offset + 3].replace(' at AMC', '')
-      return { movieName, theater, dateStr, timeStr, format }
-    }
-    return null
-  }
 
   return (
     <div className="fixed inset-0 bg-gray-950 z-50 flex flex-col">
@@ -53,35 +41,26 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
           <div className="text-center py-20">
             <p className="text-gray-500 text-sm">No showtimes being watched.</p>
             <p className="text-gray-600 text-xs mt-1">
-              Star a Lincoln Square IMAX showing to start monitoring seats.
+              Star a showing to start monitoring seats.
             </p>
           </div>
         ) : (
           items.map(item => {
-            const parsed = parseLabel(item.name)
-            const movieName = movieNames[String(item.showtimeId)] || parsed?.movieName || ''
-            const seats = item.availableSeats != null
-              ? item.availableSeats.split(',').map(s => s.trim()).filter(Boolean)
-              : null
+            const { dateStr, timeStr } = formatStartsAt(item.starts_at)
+            const theaterName = (theaterNames[item.theater_id] || '').replace(/^AMC /, '')
+            const seats = item.availableSeats
 
             return (
-              <div key={item.showtimeId} className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+              <div key={item.showtime_id} className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {movieName && (
-                      <p className="text-white font-semibold text-base leading-tight">{movieName}</p>
-                    )}
-                    {parsed && (
-                      <p className="text-gray-400 text-sm mt-0.5">
-                        {parsed.theater} · {parsed.dateStr} · {parsed.timeStr} · {parsed.format}
-                      </p>
-                    )}
-                    {!movieName && !parsed && (
-                      <p className="text-gray-400 text-sm">Showing #{item.showtimeId}</p>
-                    )}
+                    <p className="text-white font-semibold text-base leading-tight">{item.movie_name}</p>
+                    <p className="text-gray-400 text-sm mt-0.5">
+                      {[theaterName, dateStr, timeStr, item.format?.replace(' at AMC', '')].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
                   <button
-                    onClick={() => onRemove(item.showtimeId)}
+                    onClick={() => onRemove(item.showtime_id)}
                     className="text-gray-600 hover:text-red-400 text-xs transition-colors flex-shrink-0 py-1 px-2 rounded hover:bg-gray-800"
                   >
                     Remove
@@ -90,7 +69,7 @@ export default function WatchlistPanel({ items, movieNames = {}, onRemove, onClo
 
                 <div className="mt-4 pt-4 border-t border-gray-800">
                   <p className="text-xs text-gray-500 mb-2">
-                    Zone: rows {item.rowMin}–{item.rowMax} · seats {item.seatMin}–{item.seatMax}
+                    Zone: rows {item.row_min}–{item.row_max} · seats {item.seat_min}–{item.seat_max}
                   </p>
                   {seats === null ? (
                     <p className="text-gray-600 text-sm">Seat data not yet available</p>

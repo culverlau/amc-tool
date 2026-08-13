@@ -1,14 +1,17 @@
-name: Refresh RT Scores
+name: Fetch Showtimes
 
+# Data-only: refreshes theater-{id}.json in Supabase Storage for every
+# followed theater. The web/Expo apps read straight from Storage, and
+# Vercel auto-deploys the site on push — this workflow no longer builds or
+# deploys anything.
 on:
   schedule:
-    - cron: '0 8 * * *'   # daily at 8am UTC
+    - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:
 
 jobs:
-  refresh:
+  fetch:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -20,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Refresh RT scores
+      - name: Fetch showtimes for followed theaters
         env:
           AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/refresh_rt_scores.py
+        run: python scripts/fetch_showtimes.py

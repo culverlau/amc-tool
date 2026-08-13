@@ -1,147 +1,90 @@
-import re
-import requests
-import json
+"""Multi-user IMAX/premium-format seat sniper.
+
+Replaces the single-tenant version: watchlist rows now live in Postgres
+(one per (user, showtime)), each showtime is scraped once per cycle no matter
+how many users are watching it, and each user's seat-zone preference is
+evaluated independently against that single scrape. Notification dedupe is
+per-user (`notifications_sent`) instead of one global sniper_state.json.
+
+  python3 scripts/snipe_seats.py
+  python3 scripts/snipe_seats.py --dry-run          # scrape + report, no DB writes, no pushes
+  python3 scripts/snipe_seats.py --showtime-ids 145272580   # bypass the DB watchlist query
+"""
+
+import argparse
+import hashlib
 import os
+import sys
+import threading
 import time
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta, timezone
+
+import requests
 from playwright.sync_api import sync_playwright
 
-WATCHLIST_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
-NTFY_URL = 'https://ntfy.sh/amc-nyc-culverlau-sniper'
-STATE_FILE = 'sniper_state.json'
+import supabase_client as sb
+from seat_zone import filter_seats_to_zone, sort_seats
 
-DEFAULT_ROW_MIN = 'E'
-DEFAULT_ROW_MAX = 'L'
-DEFAULT_SEAT_MIN = 7
-DEFAULT_SEAT_MAX = 36
-SKIP_ROWS = {'I'}  # skipped in AMC theater numbering
+EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
+
+# ntfy path from the single-tenant version, kept behind a debug flag: it works
+# today and lets the pipeline be verified before the first EAS build exists.
+# Set SNIPER_DEBUG_NTFY_TOPIC to a personal ntfy.sh topic to use it; unset to
+# disable entirely once Expo push is confirmed working.
+DEBUG_NTFY_TOPIC = os.environ.get('SNIPER_DEBUG_NTFY_TOPIC')
+
+SKIP_ROWS = {'I'}  # skipped in AMC theater numbering — never a real row
 SKIP_LABEL_KEYWORDS = {'Wheelchair Space', 'Wheelchair Companion'}
 
-# Showtimes are local to NYC. The runner's clock is UTC, so every date/time
-# comparison must be done in ET or evening showings look like they're tomorrow.
-NY_TZ = ZoneInfo('America/New_York')
 # You can still buy a ticket up to ~20 min after the posted start; past that
-# the showing is dead to us.
+# the showing is dead to everyone. starts_at is a UTC timestamptz, so this
+# comparison is correct regardless of the theater's timezone.
 LATE_GRACE = timedelta(minutes=20)
 
+WALL_CLOCK_BUDGET_SECONDS = 240  # leaves headroom in the ~5-min cron interval
+SCRAPE_CONCURRENCY = 5
 
-def build_good_rows(row_min, row_max):
-    start = ord(row_min.upper())
-    end = ord(row_max.upper())
-    return {chr(c) for c in range(start, end + 1)} - SKIP_ROWS
-
-
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            return json.load(f)
-    return {}
+_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+)
 
 
-def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f)
+# --------------------------------------------------------------- watchlist
+
+def expire_past_showtimes(dry_run=False):
+    """Delete watchlist rows (any user) more than LATE_GRACE past their start,
+    and the notification history that goes with them."""
+    cutoff = (datetime.now(timezone.utc) - LATE_GRACE).strftime('%Y-%m-%dT%H:%M:%SZ')
+    expired = sb.select('watchlist', {'select': 'showtime_id', 'starts_at': f'lte.{cutoff}'})
+    if not expired:
+        return
+    ids = sorted({r['showtime_id'] for r in expired})
+    print(f'Expiring {len(ids)} showtime(s) past start + 20min grace')
+    if dry_run:
+        return
+    sb.delete('watchlist', {'starts_at': f'lte.{cutoff}'})
+    id_list = ','.join(str(i) for i in ids)
+    sb.delete('notifications_sent', {'showtime_id': f'in.({id_list})'})
 
 
-def fetch_watchlist():
-    # Apps Script returns intermittent 500s; retry before giving up so a single
-    # transient error doesn't skip the entire run (and leave seats unwritten).
-    last_err = None
-    for attempt in range(4):
-        try:
-            r = requests.get(WATCHLIST_URL, timeout=20)
-            r.raise_for_status()
-            return [item for item in r.json() if item.get('showtimeId')]
-        except Exception as e:
-            last_err = e
-            if attempt < 3:
-                time.sleep(2 * (attempt + 1))
-    print(f'Failed to fetch watchlist after retries: {last_err}')
-    return None
+def fetch_active_watchlist():
+    """Rows for active users whose showtime hasn't expired yet, each carrying
+    its theater's utc_offset (for notification formatting)."""
+    cutoff = (datetime.now(timezone.utc) - LATE_GRACE).strftime('%Y-%m-%dT%H:%M:%SZ')
+    rows = sb.select_all('watchlist', {
+        'select': 'id,user_id,showtime_id,theater_id,movie_name,starts_at,format,'
+                  'row_min,row_max,seat_min,seat_max,'
+                  'profiles!inner(status),theaters!inner(utc_offset,name)',
+        'profiles.status': 'eq.active',
+        'starts_at': f'gt.{cutoff}',
+        'order': 'starts_at.asc',
+    })
+    return rows
 
 
-def showtime_start(name):
-    # name is "movie · theater · YYYY-MM-DD · HH:MM · format" — pull out the
-    # ET start datetime. Returns None if there's no parseable date.
-    dm = re.search(r'(\d{4}-\d{2}-\d{2})', name)
-    if not dm:
-        return None
-    try:
-        d = date.fromisoformat(dm.group(1))
-    except ValueError:
-        return None
-    tm = re.search(r'\b(\d{1,2}):(\d{2})\b', name)
-    hour, minute = 23, 59  # no time in the name → only expire after the day ends
-    if tm:
-        h, m = int(tm.group(1)), int(tm.group(2))
-        if h <= 23 and m <= 59:
-            hour, minute = h, m
-    return datetime(d.year, d.month, d.day, hour, minute, tzinfo=NY_TZ)
-
-
-def is_past(name):
-    start = showtime_start(name)
-    if start is None:
-        return False
-    return datetime.now(NY_TZ) > start + LATE_GRACE
-
-
-def ordinal(n):
-    if 10 <= n % 100 <= 20:
-        suffix = 'th'
-    else:
-        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
-    return f'{n}{suffix}'
-
-
-def format_detail(date_part, time_part):
-    # date_part is "YYYY-MM-DD", time_part is 24h "HH:MM" — render as
-    # "Fri · June 26th 2026 · 7:30 PM" for the notification body.
-    date_disp = date_part
-    if date_part:
-        try:
-            d = date.fromisoformat(date_part)
-            dow = d.strftime('%a')  # Mon, Tue, ...
-            date_disp = f'{dow} · {d.strftime("%B")} {ordinal(d.day)} {d.year}'
-        except ValueError:
-            pass
-    time_disp = time_part
-    if time_part:
-        m = re.match(r'^(\d{1,2}):(\d{2})', time_part)
-        if m:
-            try:
-                time_disp = datetime.strptime(m.group(0), '%H:%M').strftime('%-I:%M %p')
-            except ValueError:
-                pass
-    return ' · '.join(filter(None, [date_disp, time_disp]))
-
-
-def remove_from_watchlist(showtime_id):
-    try:
-        requests.post(
-            WATCHLIST_URL,
-            json={'action': 'remove', 'showtimeId': showtime_id},
-            timeout=15,
-        )
-        print('  Removed from watchlist')
-    except Exception as e:
-        print(f'  Could not remove: {e}')
-
-
-def update_sheet_seats(showtime_id, seats):
-    payload = {'action': 'updateSeats', 'showtimeId': showtime_id, 'seats': ','.join(seats)}
-    for attempt in range(3):
-        try:
-            r = requests.post(WATCHLIST_URL, json=payload, timeout=20)
-            r.raise_for_status()
-            return
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2 * (attempt + 1))
-            else:
-                print(f'  Could not update sheet seats: {e}')
-
+# ------------------------------------------------------------------ scraping
 
 def is_sold_out(page):
     # Substring match — the banner reads "This showtime is sold out, please
@@ -152,166 +95,319 @@ def is_sold_out(page):
         return False
 
 
-def fetch_good_seats(page, showtime_id, good_rows, seat_min, seat_max):
+def fetch_available_seats(page, showtime_id):
+    """Every non-disabled, non-wheelchair seat (row 'I' excluded). No zone
+    filtering here — that happens per-user against this shared result.
+    Returns {'seats': [...], 'sold_out': bool} or None on a real failure."""
     url = f'https://www.amctheatres.com/showtimes/{showtime_id}/seats'
     try:
         page.goto(url, wait_until='domcontentloaded', timeout=20000)
         if is_sold_out(page):
-            print('  Sold out — no good seats')
-            return []
+            return {'seats': [], 'sold_out': True}
         page.wait_for_selector('[aria-label="Seat Selection Map"]', timeout=10000)
     except Exception as e:
         # Sold-out pages have no seat map, so wait_for_selector times out here.
-        # Re-check for the sold-out banner before treating it as a real error —
-        # a sold-out showing must return [] (writes empty) not None (skips write).
+        # Re-check before treating it as a real error — a sold-out showing
+        # must write [] (sold_out=True), not be skipped.
         if is_sold_out(page):
-            print('  Sold out — no good seats')
-            return []
-        print(f'  Could not load seat map: {e}')
-        print(f'  Page URL: {page.url}')
-        print(f'  Page title: {page.title()}')
+            return {'seats': [], 'sold_out': True}
+        print(f'  [{showtime_id}] could not load seat map: {e}')
         return None
 
-    seats = page.eval_on_selector_all(
+    raw = page.eval_on_selector_all(
         '[aria-label="Seat Selection Map"] input[type="checkbox"]',
         '''inputs => inputs
             .filter(inp => !inp.disabled && inp.name)
             .map(inp => ({ name: inp.name, label: inp.getAttribute("aria-label") }))'''
     )
 
-    good = []
-    for s in seats:
+    seats = []
+    for s in raw:
         name = s['name']
-        row = name[0].upper()
-        try:
-            num = int(name[1:])
-        except ValueError:
-            continue
-        if row not in good_rows:
-            continue
-        if num < seat_min or num > seat_max:
+        row = name[0].upper() if name else ''
+        if row in SKIP_ROWS:
             continue
         if any(kw in (s['label'] or '') for kw in SKIP_LABEL_KEYWORDS):
             continue
-        good.append(name)
+        seats.append(name)
 
-    return sorted(good)
-
-
-def notify(title, body):
-    try:
-        requests.post(
-            NTFY_URL,
-            data=body.encode(),
-            headers={
-                'Title': title,
-                'Priority': 'high',
-                'Tags': 'movie_camera',
-            },
-            timeout=10,
-        )
-        print(f'  Notified: {title}')
-    except Exception as e:
-        print(f'  Notification failed: {e}')
+    return {'seats': sort_seats(seats), 'sold_out': False}
 
 
-def run():
-    state = load_state()
-    watchlist = fetch_watchlist()
+_thread_local = threading.local()
+_thread_resources = []
+_thread_resources_lock = threading.Lock()
 
-    if watchlist is None:
-        return
-    if not watchlist:
-        print('Watchlist empty — nothing to snipe')
-        return
 
-    # Deduplicate by showtimeId
-    seen_ids = set()
-    unique = []
-    for item in watchlist:
-        sid = str(item['showtimeId'])
-        if sid not in seen_ids:
-            seen_ids.add(sid)
-            unique.append(item)
-    watchlist = unique
-
-    print(f'Checking {len(watchlist)} starred showing(s)...')
-
-    with sync_playwright() as pw:
+def _get_context():
+    if not hasattr(_thread_local, 'context'):
+        pw = sync_playwright().start()
         browser = pw.chromium.launch(
             headless=True,
             args=['--disable-blink-features=AutomationControlled'],
         )
-        context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        context = browser.new_context(user_agent=_USER_AGENT)
+        _thread_local.context = context
+        with _thread_resources_lock:
+            _thread_resources.append((pw, browser))
+    return _thread_local.context
+
+
+def _scrape_one(showtime_id):
+    context = _get_context()
+    page = context.new_page()
+    try:
+        return fetch_available_seats(page, showtime_id)
+    finally:
+        page.close()
+
+
+def scrape_showtimes(showtime_ids):
+    """Scrape each showtime once, soonest-first, under a wall-clock budget.
+    Whatever isn't reached this cycle rolls to the next one. Returns
+    {showtime_id: {'seats':[...], 'sold_out':bool} | None}."""
+    results = {}
+    deadline = time.time() + WALL_CLOCK_BUDGET_SECONDS
+    deferred = []
+
+    with ThreadPoolExecutor(max_workers=SCRAPE_CONCURRENCY) as executor:
+        futures = {}
+        for sid in showtime_ids:
+            if time.time() >= deadline:
+                deferred.append(sid)
+                continue
+            futures[executor.submit(_scrape_one, sid)] = sid
+
+        for fut in as_completed(futures):
+            sid = futures[fut]
+            try:
+                results[sid] = fut.result()
+            except Exception as e:
+                print(f'  [{sid}] scrape raised: {e}')
+                results[sid] = None
+
+    for pw, browser in _thread_resources:
+        try:
+            browser.close()
+            pw.stop()
+        except Exception:
+            pass
+    _thread_resources.clear()
+
+    if deferred:
+        print(f'Deferred {len(deferred)} showtime(s) to next cycle (wall-clock budget reached)')
+
+    return results
+
+
+# ----------------------------------------------------------- notifications
+
+def ordinal(n):
+    if 10 <= n % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f'{n}{suffix}'
+
+
+def _parse_utc_offset(offset_str):
+    if not offset_str:
+        return timezone.utc
+    sign = -1 if offset_str.strip().startswith('-') else 1
+    hh, mm = offset_str.strip().lstrip('+-').split(':')
+    return timezone(sign * timedelta(hours=int(hh), minutes=int(mm)))
+
+
+def format_local_datetime(starts_at_iso, utc_offset):
+    # starts_at_iso is UTC ("...Z"); render in the theater's local time as
+    # "Fri · June 26th 2026 · 7:30 PM".
+    dt_utc = datetime.fromisoformat(starts_at_iso.replace('Z', '+00:00'))
+    local = dt_utc.astimezone(_parse_utc_offset(utc_offset))
+    dow = local.strftime('%a')
+    date_disp = f'{dow} · {local.strftime("%B")} {ordinal(local.day)} {local.year}'
+    time_disp = local.strftime('%-I:%M %p')
+    return f'{date_disp} · {time_disp}'
+
+
+def seat_set_hash(seats):
+    return hashlib.sha256(','.join(sort_seats(seats)).encode()).hexdigest()
+
+
+def get_last_notification(user_id, showtime_id):
+    rows = sb.select('notifications_sent', {
+        'select': 'seat_set_hash,seats',
+        'user_id': f'eq.{user_id}',
+        'showtime_id': f'eq.{showtime_id}',
+    })
+    return rows[0] if rows else None
+
+
+def record_notification(user_id, showtime_id, seats):
+    sb.upsert('notifications_sent', [{
+        'user_id': user_id,
+        'showtime_id': showtime_id,
+        'seat_set_hash': seat_set_hash(seats),
+        'seats': seats,
+        'sent_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    }], on_conflict='user_id,showtime_id')
+
+
+_push_token_cache = {}
+
+
+def get_push_tokens(user_id):
+    if user_id not in _push_token_cache:
+        rows = sb.select('push_tokens', {'select': 'expo_token', 'user_id': f'eq.{user_id}'})
+        _push_token_cache[user_id] = [r['expo_token'] for r in rows]
+    return _push_token_cache[user_id]
+
+
+def send_expo_push(tokens, title, body):
+    if not tokens:
+        return
+    messages = [
+        {'to': t, 'title': title, 'body': body, 'sound': 'default', 'priority': 'high'}
+        for t in tokens
+    ]
+    try:
+        r = requests.post(
+            EXPO_PUSH_URL,
+            json=messages,
+            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            timeout=15,
         )
+        r.raise_for_status()
+        receipts = (r.json() or {}).get('data', [])
+        for token, receipt in zip(tokens, receipts):
+            if receipt.get('status') == 'error' and receipt.get('details', {}).get('error') == 'DeviceNotRegistered':
+                print(f'  pruning stale push token for expired device')
+                sb.delete('push_tokens', {'expo_token': f'eq.{token}'})
+    except Exception as e:
+        print(f'  Expo push failed: {e}')
 
-        for item in watchlist:
-            sid = str(item['showtimeId'])
-            name = item.get('name', sid)
-            print(f'\n{name}')
 
-            if is_past(name):
-                print('  Started more than 20 min ago — removing from watchlist')
-                remove_from_watchlist(sid)
-                state.pop(sid, None)
-                continue
+def send_debug_ntfy(title, body):
+    if not DEBUG_NTFY_TOPIC:
+        return
+    try:
+        requests.post(
+            f'https://ntfy.sh/{DEBUG_NTFY_TOPIC}',
+            data=body.encode(),
+            headers={'Title': title, 'Priority': 'high', 'Tags': 'movie_camera'},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f'  debug ntfy failed: {e}')
 
-            row_min = (item.get('rowMin') or DEFAULT_ROW_MIN).strip().upper()
-            row_max = (item.get('rowMax') or DEFAULT_ROW_MAX).strip().upper()
-            seat_min = int(item.get('seatMin') or DEFAULT_SEAT_MIN)
-            seat_max = int(item.get('seatMax') or DEFAULT_SEAT_MAX)
-            good_rows = build_good_rows(row_min, row_max)
 
-            page = context.new_page()
-            current = fetch_good_seats(page, sid, good_rows, seat_min, seat_max)
-            page.close()
+def dispatch_for_row(row, scrape_result, dry_run=False):
+    """Evaluate one user's zone against a shared scrape result; notify on
+    change. Returns True if a notification was (or would be) sent."""
+    if scrape_result is None:
+        return False  # not scraped this cycle (deferred, or scrape failed) — try again next cycle
 
-            if current is None:
-                print('  Seat map unavailable — skipping')
-                continue
+    zone = {
+        'row_min': row['row_min'], 'row_max': row['row_max'],
+        'seat_min': row['seat_min'], 'seat_max': row['seat_max'],
+    }
+    zone_seats = filter_seats_to_zone(scrape_result['seats'], zone)
 
-            last_seen = set(state.get(sid, []))
-            current_set = set(current)
-            new_seats = current_set - last_seen
-            lost_seats = last_seen - current_set
+    # 'debug' user id means --showtime-ids was used to bypass the DB entirely
+    # (no Supabase configured) — just report what would happen.
+    is_debug = row['user_id'] == 'debug'
+    last = None if is_debug else get_last_notification(row['user_id'], row['showtime_id'])
+    current_hash = seat_set_hash(zone_seats)
+    if last and last['seat_set_hash'] == current_hash:
+        return False
 
-            parts = [p.strip() for p in name.split('·')]
-            movie = (
-                next((p for p in parts if p and not re.match(r'^\d{4}-', p) and 'AMC' not in p and ':' not in p), None)
-                or next((p for p in parts if p and not re.match(r'^\d{4}-', p) and ':' not in p), None)
-                or sid
-            )
-            date_part = next((p for p in parts if re.match(r'^\d{4}-\d{2}-\d{2}$', p)), '')
-            time_part = next((p for p in parts if re.match(r'^\d{1,2}:\d{2}', p)), '')
-            detail = format_detail(date_part, time_part)
+    prev_seats = set(last['seats']) if last else set()
+    cur_seats = set(zone_seats)
+    new_seats = sorted(cur_seats - prev_seats)
+    lost_seats = sorted(prev_seats - cur_seats)
 
-            if new_seats:
-                seat_str = ' '.join(sorted(new_seats))
-                total = len(current_set)
-                send_body = f'{total} good seat(s) open — NEW: {seat_str}'
-                if detail:
-                    send_body += f'\n{detail}'
-                print(f'  → {send_body}')
-                notify(movie, send_body)
-            elif lost_seats:
-                lost_str = ' '.join(sorted(lost_seats))
-                remaining = len(current_set)
-                send_body = f'LOST: {lost_str} — {remaining} good seat(s) remaining'
-                if detail:
-                    send_body += f'\n{detail}'
-                print(f'  → {send_body}')
-                notify(movie, send_body)
-            else:
-                print(f'  {len(current_set)} good seat(s) — no change')
+    if not new_seats and not lost_seats:
+        return False  # hash differed only because of ordering; nothing user-visible changed
 
-            state[sid] = current
-            save_state(state)
-            update_sheet_seats(sid, current)
+    theater = row.get('theaters') or {}
+    detail = format_local_datetime(row['starts_at'], theater.get('utc_offset'))
 
-        context.close()
-        browser.close()
+    if new_seats:
+        body = f"{len(cur_seats)} good seat(s) open — NEW: {' '.join(new_seats)}\n{detail}"
+    else:
+        body = f"LOST: {' '.join(lost_seats)} — {len(cur_seats)} good seat(s) remaining\n{detail}"
+
+    title = row['movie_name']
+    print(f"  [{row['showtime_id']}] user {row['user_id']}: {body.splitlines()[0]}")
+
+    if not dry_run and not is_debug:
+        send_expo_push(get_push_tokens(row['user_id']), title, body)
+        send_debug_ntfy(title, body)
+        record_notification(row['user_id'], row['showtime_id'], zone_seats)
+
+    return True
+
+
+# --------------------------------------------------------------------- main
+
+def run(dry_run=False, showtime_id_overrides=None):
+    if showtime_id_overrides:
+        dry_run = True  # the debug override never has real Supabase config to write to
+        showtime_ids = showtime_id_overrides
+        watchlist_rows = [{
+            'user_id': 'debug', 'showtime_id': sid, 'theater_id': None,
+            'movie_name': str(sid), 'starts_at': datetime.now(timezone.utc).isoformat(),
+            'format': None, 'row_min': 'E', 'row_max': 'L', 'seat_min': 7, 'seat_max': 36,
+            'theaters': {}, 'profiles': {'status': 'active'},
+        } for sid in showtime_ids]
+    else:
+        expire_past_showtimes(dry_run=dry_run)
+        watchlist_rows = fetch_active_watchlist()
+        showtime_ids = sorted({r['showtime_id'] for r in watchlist_rows},
+                               key=lambda sid: next(r['starts_at'] for r in watchlist_rows if r['showtime_id'] == sid))
+
+    if not showtime_ids:
+        print('No active watchlist rows — nothing to snipe')
+        return 0
+
+    print(f'Scraping {len(showtime_ids)} unique showtime(s) '
+          f'for {len(watchlist_rows)} watchlist row(s)...')
+    results = scrape_showtimes(showtime_ids)
+
+    if not dry_run:
+        seat_rows = [
+            {
+                'showtime_id': sid,
+                'available_seats': res['seats'],
+                'sold_out': res['sold_out'],
+                'scraped_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            }
+            for sid, res in results.items() if res is not None
+        ]
+        if seat_rows:
+            sb.upsert('showtime_seats', seat_rows, on_conflict='showtime_id')
+
+    notified = 0
+    for row in watchlist_rows:
+        if dispatch_for_row(row, results.get(row['showtime_id']), dry_run=dry_run):
+            notified += 1
+
+    scraped_ok = sum(1 for r in results.values() if r is not None)
+    print(f'\nDone. {scraped_ok}/{len(showtime_ids)} showtimes scraped, {notified} notification(s) sent.')
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--dry-run', action='store_true', help='scrape and report, no DB writes or pushes')
+    ap.add_argument('--showtime-ids', help='comma-separated showtime ids, bypassing the DB watchlist query')
+    args = ap.parse_args()
+
+    overrides = None
+    if args.showtime_ids:
+        overrides = [int(x) for x in args.showtime_ids.split(',') if x.strip()]
+
+    return run(dry_run=args.dry_run, showtime_id_overrides=overrides)
 
 
 if __name__ == '__main__':
-    run()
+    sys.exit(main())

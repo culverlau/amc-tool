@@ -1,6 +1,8 @@
 node_modules/
 dist/
-public/data.json
+__pycache__/
+web/public/data.json
+web/dist/
 amc_api.txt
 sniper_state.json
 .env

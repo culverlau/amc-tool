@@ -1,52 +1,57 @@
 #!/usr/bin/env python3
-import json
+"""Refresh Rotten Tomatoes scores for movies at followed theaters.
+
+Movie list comes from the theater JSON files already sitting in Storage
+(written by fetch_showtimes.py) rather than a fresh AMC API scan — those
+files are typically only hours old, and scanning again would double the AMC
+API load for no reason. Falls back to a live AMC scan of followed theaters
+if a theater's Storage file isn't available yet (e.g. newly followed).
+"""
 import os
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fetch_showtimes import THEATERS, fetch_movie, fetch_showtimes as _fetch_showtimes
-from rt_scraper import scrape_rt, fetch_rt_cache, upsert_rt_score, cleanup_rt_cache
+import requests
 
-DATA_JSON_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'public', 'data.json')
-DATA_JSON_URL = os.environ.get('DATA_JSON_URL')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fetch_showtimes import get_followed_theaters, fetch_movie, fetch_showtimes as _fetch_showtimes, STORAGE_BUCKET
+from rt_scraper import scrape_rt, fetch_rt_cache, upsert_rt_score, cleanup_rt_cache
+import supabase_client as sb
 
 
 def _parse_movies(data):
     return [(m['id'], m['name'], m.get('releaseYear')) for m in data['movies']]
 
 
-def load_movies_from_data_json():
-    # Try local file first
-    try:
-        with open(DATA_JSON_LOCAL) as f:
-            movies = _parse_movies(json.load(f))
-        print(f"  loaded {len(movies)} movies from local data.json")
-        return movies
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        print(f"  WARNING: could not read local data.json: {e}")
+def load_movies_from_storage(theater_ids):
+    """Merge movie lists out of each followed theater's Storage file.
+    Returns None if any followed theater has no file yet — that's the signal
+    to fall back to a live scan rather than silently under-covering."""
+    if not sb.SUPABASE_URL:
+        return None
 
-    # Try live URL
-    if DATA_JSON_URL:
+    by_id = {}
+    for tid in theater_ids:
+        url = f'{sb.SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/theater-{tid}.json'
         try:
-            import requests as _requests
-            r = _requests.get(DATA_JSON_URL, timeout=15)
-            if r.status_code == 200:
-                movies = _parse_movies(r.json())
-                print(f"  loaded {len(movies)} movies from {DATA_JSON_URL}")
-                return movies
-            print(f"  WARNING: {DATA_JSON_URL} returned HTTP {r.status_code}")
+            r = requests.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f'  no Storage file yet for theater {tid} (HTTP {r.status_code})')
+                return None
+            for mid, name, year in _parse_movies(r.json()):
+                by_id[mid] = (mid, name, year)
         except Exception as e:
-            print(f"  WARNING: could not fetch {DATA_JSON_URL}: {e}")
+            print(f'  WARNING: could not fetch theater {tid} from Storage: {e}')
+            return None
 
-    return None
+    movies = list(by_id.values())
+    print(f'  loaded {len(movies)} movies from Storage ({len(theater_ids)} theater file(s))')
+    return movies
 
 
-def load_movies_from_amc_api():
-    print(f"  scanning AMC API (next 90 days across {len(THEATERS)} theaters)...")
+def load_movies_from_amc_api(theaters):
+    print(f"  scanning AMC API (next 90 days across {len(theaters)} theaters)...")
     seen = set()
     movies = []
     consecutive_empty = 0
@@ -55,7 +60,7 @@ def load_movies_from_amc_api():
         d = date.today() + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         any_results = False
-        for theater_id in THEATERS:
+        for theater_id in theaters:
             try:
                 showtimes = _fetch_showtimes(theater_id, date_str)
             except Exception as e:
@@ -96,12 +101,18 @@ def run():
     print("Fetching RT cache...")
     rt_cache = fetch_rt_cache()
     if not rt_cache:
-        print("  WARNING: cache is empty — either Sheets is down or no entries exist yet")
+        print("  WARNING: cache is empty — either Supabase is unreachable or no entries exist yet")
     else:
         print(f"  {len(rt_cache)} cached entries")
 
-    print("\nLoading movie list...")
-    movies = load_movies_from_data_json() or load_movies_from_amc_api()
+    print("\nLoading followed theaters...")
+    theaters = get_followed_theaters()
+    if not theaters:
+        print("  no followed theaters — nothing to refresh")
+        return
+
+    print("Loading movie list...")
+    movies = load_movies_from_storage(list(theaters.keys())) or load_movies_from_amc_api(theaters)
     all_ids = [mid for mid, _, _ in movies]
 
     to_refresh = []

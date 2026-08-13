@@ -5,68 +5,131 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev          # dev server at localhost:5173
-npm run build        # production build → dist/
-npm run fetch-data   # fetch live showtimes into public/data.json (uses hardcoded key for local dev only)
-python3 scripts/snipe_seats.py   # run seat sniper manually
+npm run dev            # web dev server at localhost:5173 (workspace: web/)
+npm run build           # production build → web/dist/
+npm run app             # Expo dev server (workspace: app/) — not yet built, see below
+npm run fetch-data       # fetch AMC showtimes for followed theaters → Supabase Storage
+npm run sync-theaters    # refresh the theaters table from AMC's ~550-theater directory
+npm run refresh-rt       # refresh Rotten Tomatoes scores
+npm run snipe            # run the seat sniper manually
 ```
 
-Python dependencies for scripts: `pip install requests playwright beautifulsoup4` + `python3 -m playwright install chromium`
+Python dependencies: `pip install -r scripts/requirements.txt` + `python3 -m playwright install chromium`.
 
 ## Architecture
 
-**Two independent systems share this repo:**
+This was originally a single-tenant personal tool (one Google Sheet, 4 hardcoded NYC theaters,
+GitHub Pages). It's being converted to multi-user: individual accounts, each with their own
+followed theaters (any AMC nationwide), watchlist, and seat-zone preferences, with mobile push
+as the only notification channel. See `/Users/culver/.claude/plans/so-i-think-i-hashed-thunder.md`
+for the full plan this migration follows.
 
-### 1. Screening overview site (static)
-- `scripts/fetch_showtimes.py` — hits the AMC Developer API (`api.amctheatres.com`, auth via `X-AMC-Vendor-Key` header) for 4 NYC theaters, writes `public/data.json`
-- `src/` — React + Vite + Tailwind SPA that reads `public/data.json` at runtime via `fetch(BASE_URL + 'data.json')`
-- `VITE_BASE_PATH` must be set to `/{repo-name}/` at build time
-- **Two deploy paths to GitHub Pages** (both build with `VITE_BASE_PATH`):
-  - `deploy.yml` — runs on **every push to `main`**; curls the live `data.json` first so a push doesn't wipe data, then builds + deploys. This is why pushing to main publishes the frontend immediately.
-  - `update-and-deploy.yml` — runs on a 6-hour schedule (and manual dispatch); re-fetches `data.json` from the AMC API, then builds + deploys.
-  - `refresh-rt.yml` — daily; refreshes RT scores in the Sheet.
-- The watchlist is a hash route: `…/#watchlist` deep-links straight to it.
+**Repo layout (npm workspaces):**
+- `web/` — the React + Vite + Tailwind SPA (formerly at the repo root)
+- `shared/` — `@amc/shared`, used by both `web/` and the future `app/` (Expo): Supabase client
+  factory, all DB queries (`shared/src/queries.js`), seat-zone math (`shared/src/seats.js`),
+  multi-theater data merge (`shared/src/data.js`)
+- `app/` — Expo/React Native app (iOS + Android), **not yet built**
+- `scripts/` — Python jobs (unchanged location)
+- `supabase/migrations/` — schema DDL, source of truth for the database
 
-### 2. IMAX seat sniper
-- `scripts/snipe_seats.py` — reads a Google Sheets watchlist, scrapes AMC seat pages with Playwright (plain `requests` is blocked by Cloudflare), finds available seats in the preferred zone, sends ntfy.sh push notifications, and writes the current available seats back to the Sheet (`updateSeats` action)
-- `sniper.yml` has **only `workflow_dispatch`** — there is no GitHub `schedule:` cron. It is triggered every ~5 minutes by an **external cron-job.org job** that calls the workflow dispatch. (So sniper runs show up as `workflow_dispatch`, not `schedule`.)
-- Sniper state persists between runs via `actions/cache`
-- **Expiry:** a watchlist row is skipped *and removed from the Sheet* once the showtime is more than 20 min past its start (tickets stop being worth buying). All date/time math uses `America/New_York` — the runner clock is UTC, so a naive `date.today()` makes evening ET showings look like tomorrow and deletes them a day early.
+**Backend: Supabase.** Hosted Postgres + Auth (Google, Apple to follow) + Row Level Security.
+There is no application server — both clients query Postgres directly via `@supabase/supabase-js`;
+RLS is what actually enforces per-user data isolation, not application code. The anon key shipped
+in both client bundles is meant to be public. The **service role key** (used only by the Python
+jobs in GitHub Actions) bypasses RLS entirely and must never appear in `web/`, `app/`, or any
+commit — see `scripts/supabase_client.py`.
+
+**Hosting: Vercel**, auto-deploying `web/` on every push to `main` (`vercel.json` at the repo
+root points it at the `web` workspace). GitHub Pages is retired — no more `VITE_BASE_PATH`
+subpath juggling, no more curling live data back into the repo before a deploy.
 
 ### Data flow
+
 ```
-AMC API → fetch_showtimes.py → public/data.json → React UI
-Google Sheet (watchlist) → snipe_seats.py → AMC seat pages → ntfy.sh notification
+AMC API ──► fetch_showtimes.py ──► theater-{id}.json (per followed theater) ──► Supabase Storage
+                                                                                       │
+                                                                    web (Vercel) / Expo app fetch
+                                                                    only the theaters they follow
+
+Supabase Postgres (profiles, theaters, user_theaters, watchlist, showtime_seats, ...)
+    ◄── both clients query directly, RLS-scoped
+    ◄── snipe_seats.py (service role) reads watchlist, writes showtime_seats + notifications
 ```
+
+Theaters are fetched **on demand**: `fetch_showtimes.py` only pulls theaters with ≥1 follower
+(there are ~550 AMC theaters total; fetching all of them would be ~50k API calls per run). Each
+theater gets its own Storage object so a client only downloads theaters its user actually follows.
+`shared/src/data.js` (`loadShowtimeData`) fetches and merges those per-theater files back into
+the single shape the UI consumes.
 
 ### Key data details
-- Theater IDs: Lincoln Square 13 = 2116, 34th Street 14 = 2120, Kips Bay 15 = 2195, Empire 25 = 552
-- Language detection: AMC's `languages` field is always `{}` — language is parsed from `attributes[].name` via regex `r'^(\w+)\s+(?:Spoken|Language)\b'`
-- A-List eligibility: `availableForAList` boolean from `/v2/movies/{id}` endpoint (movie level, not showtime level)
-- Fathom events: detected via `EVENT` attribute code on the showtime
-- `public/data.json` is gitignored (generated artifact)
 
-### Watchlist / star button
-- Stars only appear on Lincoln Square IMAX showtimes (`theaterId === 2116 && format.includes('IMAX')`)
-- Clicking a star POSTs to a Google Apps Script web app which reads/writes a Google Sheet
-- The site reads the watchlist on load to restore star state across devices
-- Preferred snipe zone: rows E–L, seats 7–36
+- Theater directory (`theaters` table) comes from AMC's `/v2/theatres` endpoint (~550 theaters,
+  paginated, `pageSize=100`), synced weekly by `scripts/sync_theaters.py`. Includes `utc_offset`
+  ("-04:00" style) — needed to render notification times correctly per theater, nationwide.
+- **`startsAt` / `watchlist.starts_at` is `showDateTimeUtc`, a true UTC instant** — not
+  `showDateTimeLocal`, which carries no UTC offset and would silently misinterpret in Postgres'
+  session timezone for any theater. This is what makes all showtime-expiry and sorting logic
+  correct nationwide with zero per-theater timezone code. `date`/`time` fields stay local
+  wall-clock, for display only.
+- Language detection: AMC's `languages` field is always `{}` — language is parsed from
+  `attributes[].name` via regex `r'^(\w+)\s+(?:Spoken|Language)\b'`.
+- A-List eligibility: `availableForAList` boolean from `/v2/movies/{id}` (movie level, not
+  showtime level).
+- Fathom events: detected via the `EVENT` attribute code on the showtime.
 
-### Google Apps Script + Sheet (the watchlist backend)
-- Source of truth lives in `scripts/appscript.gs` — a **mirror** of the deployed script. Editing this file does nothing on its own; you must paste it into the Apps Script editor.
-- **GOTCHA (cost real debugging time):** the live web app is pinned to a numbered *deployed version*. Editing + saving the script does **not** update the live endpoint — you must Deploy → Manage deployments → edit → **New version**. The URL stays the same. If GET/POST behavior doesn't match the code, this is almost always why.
-- **Watchlist sheet is positional, no header row.** Columns: `A` showtimeId, `B` name (`movie · theater · date · time · format`), `C` rowMin, `D` rowMax, `E` seatMin, `F` seatMax, `G` availableSeats (comma-separated, written by the sniper's `updateSeats` action).
-- `doGet` returns the watchlist rows as JSON (incl. `availableSeats`); `?sheet=scores` returns the RT Scores tab.
-- `doPost` actions: `add`, `remove`, `updateSeats` (watchlist) and `upsertScore`, `cleanupScores` (Scores tab).
-- Sniper → Sheet seat states the UI renders: missing field → "Seat data not yet available"; `''` → "No good seats open right now"; comma list → green seat chips. A sold-out showtime writes `''` (it returns `[]`, not skipped).
+### Watchlist / seat sniper
+
+- Any showtime at a followed theater can be starred (not gated to a specific theater/format
+  anymore). Adding to the watchlist is `addToWatchlist` in `shared/src/queries.js`, which throws
+  if the user's `snipe_cap` (default 15) is exceeded — enforced both client-side and by a DB
+  trigger (`watchlist_enforce_cap` in the migration), so it can't be bypassed by calling the API
+  directly.
+- `watchlist` is keyed `(user_id, showtime_id)`: two users can star the same showtime with
+  different seat-zone preferences.
+- `scripts/snipe_seats.py` scrapes each **unique showtime once per cycle** (not once per
+  watchlist row) via Playwright — AMC's Cloudflare blocks plain `requests` — then evaluates every
+  watching user's zone independently against that single scrape. Concurrency ~5, wall-clock
+  budget ~4 min per cycle; whatever isn't reached rolls to the next cycle (logged as "deferred",
+  never silently dropped).
+- Notification dedupe is per-`(user_id, showtime_id)` in `notifications_sent` (stores the last
+  notified seat set + hash), not a single global state file — one user's alert no longer
+  consumes the "new seat" event for everyone.
+- Expiry: a watchlist row is skipped and deleted once its showtime is >20 min past `starts_at`.
+  Since `starts_at` is UTC, this is correct regardless of theater timezone with no ET-specific
+  math (the old single-tenant version needed `America/New_York` handling for exactly this reason).
+- Notifications go out via Expo Push (`push_tokens` table) — **once the Expo app exists**. Until
+  then, `SNIPER_DEBUG_NTFY_TOPIC` (env var / GitHub secret) optionally mirrors notifications to a
+  personal ntfy.sh topic for testing the pipeline end-to-end.
+- `sniper.yml` has **only `workflow_dispatch`** — no GitHub `schedule:`. It's triggered every ~5
+  min by an external cron-job.org job.
 
 ### AMC seat page scraping
-- URL: `https://www.amctheatres.com/showtimes/{showtimeId}/seats`
-- Page is SSR'd — seat availability is in the initial HTML
-- Available seats: `input[type=checkbox]` without `disabled` inside `[aria-label="Seat Selection Map"]`
-- Seat name format: row letter + number (e.g. `F22`); `aria-label` contains type ("AMC Club Rocker F22", "Occupied AMC Club Rocker B24")
-- Cloudflare blocks plain `requests` — must use Playwright
+
+- URL: `https://www.amctheatres.com/showtimes/{showtimeId}/seats`. SSR'd — seat availability is
+  in the initial HTML.
+- Available seats: `input[type=checkbox]` without `disabled` inside
+  `[aria-label="Seat Selection Map"]`. Seat name = row letter + number (e.g. `F22`).
+- Row `I` is always excluded (skipped in AMC's own numbering), independent of any user's zone.
+  Zone filtering (`row_min`/`row_max`/`seat_min`/`seat_max`) happens per-user afterward, against
+  the one shared scrape — see `scripts/seat_zone.py` (a deliberate Python port of
+  `shared/src/seats.js`; keep both in sync if the zone logic changes).
+
+### Not yet built (see the plan doc)
+
+- The Expo app (`app/`) — screens, push registration, EAS build/TestFlight.
+- Web push / Sign in with Apple.
+- Google OAuth provider configuration in the live Supabase project (needs a Google Cloud OAuth
+  client — the one unavoidable piece of GCP for this project).
 
 ## Secrets
-- `AMC_API_KEY` — GitHub Actions secret, never commit; local key is in `amc_api.txt` (gitignored)
-- Google Apps Script URL and ntfy.sh topic are hardcoded in their respective scripts (personal tool, low sensitivity)
+
+- `AMC_API_KEY` — GitHub Actions secret; local key in `amc_api.txt` (gitignored, resolved
+  relative to the repo root regardless of cwd).
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — GitHub Actions secrets, used only by
+  `scripts/supabase_client.py`. Never in client bundles.
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — Vercel env vars (and `web/.env` locally, from
+  `web/.env.example`). Safe to be public; RLS on the signed-in user's JWT is the real boundary.
+- `SNIPER_DEBUG_NTFY_TOPIC` — optional, personal ntfy.sh topic for testing the sniper before the
+  Expo app exists.

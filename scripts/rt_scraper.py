@@ -1,8 +1,10 @@
-import re
 import html as html_module
+import re
+
 import requests
 
-APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxqX5--yrniT_ZrQz4WJ1CR9saTN5Q-VS9lDj7AvozqtWRiUF89Ig8ugot-b1HirfGt/exec'
+import supabase_client as sb
+
 RT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'}
 
 
@@ -120,45 +122,36 @@ def scrape_rt(title, release_year=None):
 
 
 def fetch_rt_cache():
+    """amcId (str) -> {'rtScore', 'rtSlug'}, from the movie_scores table."""
     try:
-        r = requests.get(APPS_SCRIPT_URL, params={'sheet': 'scores'}, timeout=15)
-        if r.status_code != 200:
-            print(f'Warning: fetch_rt_cache got HTTP {r.status_code}')
-            return {}
-        return {item['amcId']: {'rtScore': item.get('rtScore'), 'rtSlug': item.get('rtSlug')} for item in r.json()}
-    except requests.Timeout:
-        print('Warning: fetch_rt_cache timed out')
-        return {}
-    except Exception as e:
+        rows = sb.select_all('movie_scores', {'select': 'amc_id,rt_score,rt_slug'})
+        return {
+            str(r['amc_id']): {'rtScore': r.get('rt_score'), 'rtSlug': r.get('rt_slug')}
+            for r in rows
+        }
+    except sb.SupabaseError as e:
         print(f'Warning: fetch_rt_cache failed: {e}')
         return {}
 
 
 def upsert_rt_score(amc_id, title, rt_score, rt_slug, now_str):
     try:
-        r = requests.post(
-            APPS_SCRIPT_URL,
-            json={'action': 'upsertScore', 'amcId': str(amc_id), 'title': title, 'rtScore': rt_score, 'rtSlug': rt_slug or '', 'fetchedAt': now_str},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            print(f'Warning: upsert for "{title}" got HTTP {r.status_code}')
-    except requests.Timeout:
-        print(f'Warning: upsert timed out for "{title}"')
-    except Exception as e:
-        print(f'Warning: upsert failed for "{title}": {e}')
+        sb.upsert('movie_scores', [{
+            'amc_id': amc_id,
+            'title': title,
+            'rt_score': rt_score,
+            'rt_slug': rt_slug or None,
+            'fetched_at': now_str,
+        }], on_conflict='amc_id')
+    except sb.SupabaseError as e:
+        print(f'Warning: upsert for "{title}" failed: {e}')
 
 
 def cleanup_rt_cache(amc_ids):
+    if not amc_ids:
+        return
     try:
-        r = requests.post(
-            APPS_SCRIPT_URL,
-            json={'action': 'cleanupScores', 'amcIds': [str(i) for i in amc_ids]},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            print(f'Warning: cleanup got HTTP {r.status_code}')
-    except requests.Timeout:
-        print('Warning: cleanup timed out')
-    except Exception as e:
+        id_list = ','.join(str(i) for i in amc_ids)
+        sb.delete('movie_scores', {'amc_id': f'not.in.({id_list})'})
+    except sb.SupabaseError as e:
         print(f'Warning: cleanup failed: {e}')

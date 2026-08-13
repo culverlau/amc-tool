@@ -1,9 +1,25 @@
-import re
-import requests
+"""Fetch AMC showtimes for followed theaters and publish per-theater JSON.
+
+Demand-driven: only theaters with at least one follower in `user_theaters`
+are fetched (there are ~550 AMC theaters total; fetching all of them would be
+~50k API calls per run). Each theater's movies/screenings are written to
+their own Storage object, `showtimes/theater-{id}.json`, so a client only
+downloads the theaters its user actually follows.
+
+  python3 scripts/fetch_showtimes.py                     # fetch followed theaters, upload
+  python3 scripts/fetch_showtimes.py --theater-ids 2116,552   # override the theater list
+  python3 scripts/fetch_showtimes.py --dry-run            # fetch + report, no upload
+  python3 scripts/fetch_showtimes.py --save-local web/public  # also write files locally
+"""
+
+import argparse
 import json
 import os
+import re
+import sys
 import time
 from datetime import date, datetime, timedelta, timezone
+
 
 def _read_key_file(path):
     try:
@@ -16,16 +32,21 @@ def _read_key_file(path):
         pass
     return ""
 
-API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file("amc_api.txt")
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Resolve the key file relative to the repo, not the cwd, so scripts work the
+# same whether invoked from the repo root or from scripts/.
+API_KEY = os.environ.get("AMC_API_KEY") or _read_key_file(
+    os.path.join(_REPO_ROOT, "amc_api.txt")
+)
 BASE = "https://api.amctheatres.com"
 HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
-THEATERS = {
-    2116: "AMC Lincoln Square 13",
-    2120: "AMC 34th Street 14",
-    2195: "AMC Kips Bay 15",
-    552: "AMC Empire 25",
-}
+STORAGE_BUCKET = "showtimes"
+
+MAX_DAYS = 90
+MAX_CONSECUTIVE_EMPTY_DAYS = 3
 
 
 def _parse_lang_from_attr_name(name):
@@ -34,6 +55,7 @@ def _parse_lang_from_attr_name(name):
 
 
 def fetch_movie(movie_id):
+    import requests
     try:
         r = requests.get(f"{BASE}/v2/movies/{movie_id}", headers=HEADERS, timeout=15)
         if r.status_code != 200:
@@ -49,6 +71,7 @@ def fetch_movie(movie_id):
 
 
 def fetch_showtimes(theater_id, date_str):
+    import requests
     showtimes = []
     page = 1
     while True:
@@ -111,84 +134,102 @@ def detect_languages(showtime):
     return sorted(langs) if langs else ["English"]
 
 
-def run():
+def get_followed_theaters():
+    """Theater id -> name, for every theater with >=1 follower."""
+    import supabase_client as sb
+
+    follows = sb.select_all("user_theaters", {"select": "amc_id"})
+    ids = sorted({row["amc_id"] for row in follows})
+    if not ids:
+        return {}
+
+    id_list = ",".join(str(i) for i in ids)
+    theaters = sb.select("theaters", {"select": "amc_id,name", "amc_id": f"in.({id_list})"})
+    return {t["amc_id"]: t["name"] for t in theaters}
+
+
+def fetch_theater(theater_id, theater_name, movie_cache, skipped):
+    """Fetch all upcoming showtimes for one theater. `movie_cache` and
+    `skipped` are shared across theaters in this run so a movie playing at
+    several followed theaters is only looked up once."""
     movies = {}
-    skipped = set()  # non-A-List movie IDs already checked
     today = date.today()
     consecutive_empty = 0
+    days_checked = 0
 
-    for offset in range(90):
+    for offset in range(MAX_DAYS):
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
-        any_results = False
+        days_checked = offset + 1
 
-        for theater_id, theater_name in THEATERS.items():
-            showtimes = fetch_showtimes(theater_id, date_str)
-            time.sleep(0.1)
+        showtimes = fetch_showtimes(theater_id, date_str)
+        time.sleep(0.1)
 
-            if showtimes:
-                any_results = True
-
-            for s in showtimes:
-                mid = s["movieId"]
-                name = s["movieName"]
-
-                if mid in skipped:
-                    continue
-
-                if mid not in movies:
-                    movie_api = fetch_movie(mid)
-                    time.sleep(0.1)
-
-                    if movie_api.get("availableForAList") is False:
-                        skipped.add(mid)
-                        continue
-
-                    release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
-
-                    movies[mid] = {
-                        "id": mid,
-                        "name": name,
-                        "genre": s.get("genre", ""),
-                        "mpaaRating": s.get("mpaaRating", ""),
-                        "runTime": s.get("runTime", 0),
-                        "releaseYear": release_year,
-                        "poster": (s.get("media") or {}).get("posterDynamic", ""),
-                        "formats": set(),
-                        "languages": set(),
-                        "scores": {},
-                        "screenings": [],
-                    }
-
-                fmt = get_format(s)
-                movies[mid]["formats"].add(fmt)
-                for lang in detect_languages(s):
-                    movies[mid]["languages"].add(lang)
-
-                # date_str is AMC's *business* day: a 12:30am show is returned by
-                # the query for the previous calendar date, which is how we want it
-                # grouped. startsAt keeps the true local datetime, since anything
-                # doing real time math (sniper expiry, sorting) needs it.
-                movies[mid]["screenings"].append({
-                    "showtimeId": s["id"],
-                    "theaterId": theater_id,
-                    "theaterName": theater_name,
-                    "date": date_str,
-                    "time": s["showDateTimeLocal"][11:16],
-                    "startsAt": s["showDateTimeLocal"],
-                    "format": fmt,
-                    "hasOC": has_open_caption(s),
-                    "isSoldOut": s.get("isSoldOut", False),
-                    "isAlmostSoldOut": s.get("isAlmostSoldOut", False),
-                    "purchaseUrl": s.get("purchaseUrl", ""),
-                })
-
-        if not any_results:
+        if not showtimes:
             consecutive_empty += 1
-            if consecutive_empty >= 3:
+            if consecutive_empty >= MAX_CONSECUTIVE_EMPTY_DAYS:
                 break
-        else:
-            consecutive_empty = 0
+            continue
+        consecutive_empty = 0
+
+        for s in showtimes:
+            mid = s["movieId"]
+            if mid in skipped:
+                continue
+            if not s.get("showDateTimeUtc"):
+                print(f'Warning: showtime {s.get("id")} missing showDateTimeUtc, skipping')
+                continue
+
+            if mid not in movie_cache:
+                movie_api = fetch_movie(mid)
+                time.sleep(0.1)
+                if movie_api.get("availableForAList") is False:
+                    skipped.add(mid)
+                    continue
+                movie_cache[mid] = movie_api
+            movie_api = movie_cache[mid]
+
+            if mid not in movies:
+                release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
+                movies[mid] = {
+                    "id": mid,
+                    "name": s["movieName"],
+                    "genre": s.get("genre", ""),
+                    "mpaaRating": s.get("mpaaRating", ""),
+                    "runTime": s.get("runTime", 0),
+                    "releaseYear": release_year,
+                    "poster": (s.get("media") or {}).get("posterDynamic", ""),
+                    "formats": set(),
+                    "languages": set(),
+                    "scores": {},
+                    "screenings": [],
+                }
+
+            fmt = get_format(s)
+            movies[mid]["formats"].add(fmt)
+            for lang in detect_languages(s):
+                movies[mid]["languages"].add(lang)
+
+            # date_str is AMC's *business* day: a 12:30am show is returned by
+            # the query for the previous calendar date, which is how we want it
+            # grouped. "time" is local wall-clock for display. "startsAt" is
+            # showDateTimeUtc — a true UTC instant, not showDateTimeLocal (which
+            # has no offset attached) — so it stores correctly as a timestamptz
+            # and sorts/compares correctly regardless of the theater's timezone.
+            # This is also what becomes watchlist.starts_at.
+            movies[mid]["screenings"].append({
+                "showtimeId": s["id"],
+                "theaterId": theater_id,
+                "theaterName": theater_name,
+                "date": date_str,
+                "time": s["showDateTimeLocal"][11:16],
+                "startsAt": s["showDateTimeUtc"],
+                "format": fmt,
+                "hasOC": has_open_caption(s),
+                "isSoldOut": s.get("isSoldOut", False),
+                "isAlmostSoldOut": s.get("isAlmostSoldOut", False),
+                "purchaseUrl": s.get("purchaseUrl", ""),
+            })
 
     for m in movies.values():
         m["formats"] = sorted(m["formats"])
@@ -199,18 +240,89 @@ def run():
         key=lambda m: min(s["date"] + s["time"] for s in m["screenings"])
     )
 
-    output = {
-        "lastUpdated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "theaters": {str(k): v for k, v in THEATERS.items()},
-        "movies": movie_list,
-    }
+    return movie_list, days_checked
 
-    os.makedirs("public", exist_ok=True)
-    with open("public/data.json", "w") as f:
-        json.dump(output, f)
 
-    print(f"Wrote {len(movie_list)} movies across {offset + 1} days checked")
+def run(theater_overrides=None, dry_run=False, save_local=None):
+    if theater_overrides:
+        theaters = theater_overrides
+    else:
+        theaters = get_followed_theaters()
+
+    if not theaters:
+        print("No followed theaters — nothing to fetch.")
+        return 0
+
+    print(f"Fetching {len(theaters)} theater(s): {list(theaters.values())}")
+
+    movie_cache = {}
+    skipped = set()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    index = {}
+
+    if save_local:
+        os.makedirs(save_local, exist_ok=True)
+
+    for theater_id, theater_name in theaters.items():
+        print(f"\n{theater_name} ({theater_id})...")
+        movie_list, days_checked = fetch_theater(theater_id, theater_name, movie_cache, skipped)
+        print(f"  {len(movie_list)} movies across {days_checked} days checked")
+
+        output = {
+            "lastUpdated": now,
+            "theaters": {str(theater_id): theater_name},
+            "movies": movie_list,
+        }
+        payload = json.dumps(output)
+        filename = f"theater-{theater_id}.json"
+
+        if save_local:
+            with open(os.path.join(save_local, filename), "w") as f:
+                f.write(payload)
+
+        if not dry_run:
+            import supabase_client as sb
+            sb.storage_upload(STORAGE_BUCKET, filename, payload)
+            sb.upsert("theaters", [{"amc_id": theater_id, "last_fetched_at": now}], on_conflict="amc_id")
+
+        index[str(theater_id)] = {
+            "name": theater_name,
+            "lastUpdated": now,
+            "movieCount": len(movie_list),
+        }
+
+    index_payload = json.dumps({"lastUpdated": now, "theaters": index})
+    if save_local:
+        with open(os.path.join(save_local, "index.json"), "w") as f:
+            f.write(index_payload)
+    if not dry_run:
+        import supabase_client as sb
+        sb.storage_upload(STORAGE_BUCKET, "index.json", index_payload)
+
+    print(f"\nDone. {len(theaters)} theater file(s) {'written locally' if save_local else ''}"
+          f"{' and ' if save_local and not dry_run else ''}"
+          f"{'uploaded to Storage' if not dry_run else ''}.")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--theater-ids", help="comma-separated AMC theater ids, bypassing the Supabase follower query")
+    ap.add_argument("--dry-run", action="store_true", help="fetch and report, skip Storage upload")
+    ap.add_argument("--save-local", metavar="DIR", help="also write theater-{id}.json/index.json to DIR")
+    args = ap.parse_args()
+
+    if not API_KEY:
+        print("Error: no AMC API key (set AMC_API_KEY or provide amc_api.txt)")
+        return 1
+
+    overrides = None
+    if args.theater_ids:
+        ids = [int(x) for x in args.theater_ids.split(",") if x.strip()]
+        overrides = {i: f"AMC Theatre {i}" for i in ids}
+
+    return run(theater_overrides=overrides, dry_run=args.dry_run, save_local=args.save_local)
 
 
 if __name__ == "__main__":
-    run()
+    sys.exit(main())

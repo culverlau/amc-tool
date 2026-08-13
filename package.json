@@ -3,22 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "shared",
+    "web",
+    "app"
+  ],
   "scripts": {
-    "dev": "sh scripts/dev.sh",
-    "build": "vite build",
-    "preview": "vite preview",
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "preview": "npm run preview -w web",
+    "app": "npm run start -w app",
     "fetch-data": "python3 scripts/fetch_showtimes.py",
-    "refresh-rt": "python3 scripts/refresh_rt_scores.py"
-  },
-  "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.4",
-    "vite": "^5.4.11"
+    "sync-theaters": "python3 scripts/sync_theaters.py",
+    "refresh-rt": "python3 scripts/refresh_rt_scores.py",
+    "snipe": "python3 scripts/snipe_seats.py"
   }
 }

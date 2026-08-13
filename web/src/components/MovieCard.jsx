@@ -1,11 +1,7 @@
 import { useState } from 'react'
 
-const THEATER_ORDER = [2116, 2120, 552, 2195]
-const THEATER_SHORT = {
-  2116: 'Lincoln Square 13',
-  2120: '34th Street 14',
-  552: 'Empire 25',
-  2195: 'Kips Bay 15',
+function shortTheaterName(name) {
+  return (name || '').replace(/^AMC /, '')
 }
 
 function formatTime(timeStr) {
@@ -59,7 +55,7 @@ function runtimeStr(minutes) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
+export default function MovieCard({ movie, filters, watchlist, onToggleStar, theaterNames = {} }) {
   // selection: null | { type: 'date', key: string } | { type: 'theater', key: number }
   const [selection, setSelection] = useState(null)
   const [imgError, setImgError] = useState(false)
@@ -75,7 +71,10 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
   const dates = Object.keys(byDate).sort()
   if (dates.length === 0) return null
 
-  const theaterIds = THEATER_ORDER.filter(id =>
+  // Theater display order follows the order theaters appear in theaterNames
+  // (the user's followed order), filtered to theaters this movie is playing at.
+  const theaterOrder = Object.keys(theaterNames).map(Number)
+  const theaterIds = theaterOrder.filter(id =>
     Object.values(byDate).some(shows => shows.some(s => s.theaterId === id))
   )
 
@@ -109,9 +108,8 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
 
   function renderShowtime(s) {
     const fmtShort = formatShort(s.format)
-    const isLincolnImax = s.theaterId === 2116 && s.format.includes('IMAX')
-    const starred = isLincolnImax && watchlist?.has(String(s.showtimeId))
-    const starBtn = isLincolnImax ? (
+    const starred = watchlist?.has(String(s.showtimeId))
+    const starBtn = (
       <button
         key={`star-${s.showtimeId}`}
         onClick={() => onToggleStar?.({ ...s, movieName: movie.name })}
@@ -120,7 +118,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
       >
         {starred ? '★' : '☆'}
       </button>
-    ) : null
+    )
 
     if (s.isSoldOut) {
       return (
@@ -300,7 +298,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
                         : 'bg-gray-800/60 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
                     }`}
                   >
-                    {THEATER_SHORT[id]}
+                    {shortTheaterName(theaterNames[id])}
                   </button>
                 )
               })}
@@ -313,7 +311,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
       {activeDate && (
         <div className="border-t border-gray-800 bg-gray-900/50 px-4 py-4">
           <div className="space-y-4">
-            {THEATER_ORDER.map(theaterId => {
+            {theaterOrder.map(theaterId => {
               const shows = byDate[activeDate]
                 .filter(s => s.theaterId === theaterId)
                 .sort((a, b) => showOrder(a) - showOrder(b))
@@ -321,7 +319,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar }) {
               return (
                 <div key={theaterId}>
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    {THEATER_SHORT[theaterId]}
+                    {shortTheaterName(theaterNames[theaterId])}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {shows.map(s => renderShowtime(s))}
