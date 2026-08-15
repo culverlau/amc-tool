@@ -37,7 +37,10 @@ EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 DEBUG_NTFY_TOPIC = os.environ.get('SNIPER_DEBUG_NTFY_TOPIC')
 
 SKIP_ROWS = {'I'}  # skipped in AMC theater numbering — never a real row
-SKIP_LABEL_KEYWORDS = {'Wheelchair Space', 'Wheelchair Companion'}
+# Wheelchair spaces are excluded — a seat-zone match there isn't useful to a
+# user who didn't ask for one. Companion seats stay in: they're regular seats
+# next to a wheelchair space, fine to snipe like any other.
+SKIP_LABEL_KEYWORDS = {'Wheelchair Space'}
 
 # You can still buy a ticket up to ~20 min after the posted start; past that
 # the showing is dead to everyone. starts_at is a UTC timestamptz, so this

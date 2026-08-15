@@ -7,6 +7,7 @@ import TheaterPicker from './components/TheaterPicker'
 import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import Admin from './components/Admin'
+import LegendModal from './components/Legend'
 import { SignInScreen, WaitlistScreen, LoadingScreen } from './components/AuthGate'
 import { useAuth } from './useAuth'
 import { supabase, SUPABASE_URL } from './supabase'
@@ -46,10 +47,10 @@ export default function App() {
   if (profile.status === 'waitlisted') return <WaitlistScreen onSignOut={signOut} />
   if (!profile.onboarded_at) return <Onboarding profile={profile} onDone={setProfile} />
 
-  return <MainApp initialProfile={profile} onSignOut={signOut} />
+  return <MainApp initialProfile={profile} onSignOut={signOut} onRestartOnboarding={setProfile} />
 }
 
-function MainApp({ initialProfile, onSignOut }) {
+function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const [profile, setProfile] = useState(initialProfile)
   const [followedTheaters, setFollowedTheaters] = useState(null) // null = still loading
   const [data, setData] = useState(null)
@@ -59,6 +60,7 @@ function MainApp({ initialProfile, onSignOut }) {
   const [movieScores, setMovieScores] = useState(null)
   const [pendingShowtime, setPendingShowtime] = useState(null)
   const [view, setView] = useState(() => hashToView(window.location.hash))
+  const [legendOpen, setLegendOpen] = useState(false)
 
   // Keep view in sync with the URL hash (back/forward button, direct links)
   useEffect(() => {
@@ -201,6 +203,13 @@ function MainApp({ initialProfile, onSignOut }) {
               </p>
             )}
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => setLegendOpen(true)}
+                title="What the icons mean"
+                className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                Key
+              </button>
               <button
                 onClick={() => goTo('theaters')}
                 className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
@@ -359,12 +368,15 @@ function MainApp({ initialProfile, onSignOut }) {
           onProfileChange={setProfile}
           onClose={closeOverlay}
           onSignOut={onSignOut}
+          onRestartOnboarding={onRestartOnboarding}
         />
       )}
 
       {view === 'admin' && profile.email === ADMIN_EMAIL && (
         <Admin onClose={closeOverlay} />
       )}
+
+      {legendOpen && <LegendModal onClose={() => setLegendOpen(false)} />}
     </div>
   )
 }

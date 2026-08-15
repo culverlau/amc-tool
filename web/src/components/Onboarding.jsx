@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { searchTheaters, followTheater, completeOnboarding } from '@amc/shared'
 import { supabase } from '../supabase'
 import NtfySetup from './NtfySetup'
+import { LegendItems } from './Legend'
 
-const STEPS = ['welcome', 'theater', 'alerts']
+const STEPS = ['welcome', 'theater', 'alerts', 'key']
 
 export default function Onboarding({ profile: initialProfile, onDone }) {
   const [profile, setProfile] = useState(initialProfile)
@@ -50,7 +51,8 @@ export default function Onboarding({ profile: initialProfile, onDone }) {
         <div className="max-w-md mx-auto w-full p-6">
           {step === 0 && <WelcomeStep onNext={() => setStep(1)} />}
           {step === 1 && <TheaterStep onNext={() => setStep(2)} />}
-          {step === 2 && <AlertsStep profile={profile} onProfileChange={setProfile} finishing={finishing} onFinish={finish} />}
+          {step === 2 && <AlertsStep profile={profile} onProfileChange={setProfile} onNext={() => setStep(3)} />}
+          {step === 3 && <KeyStep finishing={finishing} onFinish={finish} />}
         </div>
       </div>
     </div>
@@ -160,14 +162,49 @@ function TheaterStep({ onNext }) {
   )
 }
 
-function AlertsStep({ profile, onProfileChange, finishing, onFinish }) {
+function AlertsStep({ profile, onProfileChange, onNext }) {
   return (
     <div>
-      <h2 className="text-white font-semibold text-lg mb-1">Set up seat alerts</h2>
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="text-white font-semibold text-lg">Set up seat alerts</h2>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500 border border-gray-700 rounded px-1.5 py-0.5">
+          Optional
+        </span>
+      </div>
       <p className="text-gray-500 text-sm mb-4">
-        One more step — this is how you'll actually hear about open seats.
+        This is how you'll hear about open seats — but it's entirely optional. Skip it now
+        and set it up later from Settings whenever you're ready.
       </p>
       <NtfySetup profile={profile} onProfileChange={onProfileChange} />
+      <div className="flex gap-2 mt-6">
+        <button
+          onClick={onNext}
+          className="flex-1 text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors font-medium px-4 py-3 rounded-lg"
+        >
+          Skip for now
+        </button>
+        <button
+          onClick={onNext}
+          className="flex-1 text-sm text-white bg-red-700 hover:bg-red-600 transition-colors font-medium px-4 py-3 rounded-lg"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function KeyStep({ finishing, onFinish }) {
+  return (
+    <div>
+      <h2 className="text-white font-semibold text-lg mb-1">A few icons to know</h2>
+      <p className="text-gray-500 text-sm mb-5">
+        You'll see these throughout the app — you can always pull this up again from the
+        "Key" button up top.
+      </p>
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <LegendItems />
+      </div>
       <button
         onClick={onFinish}
         disabled={finishing}

@@ -45,8 +45,7 @@ HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 
 STORAGE_BUCKET = "showtimes"
 
-MAX_DAYS = 90
-MAX_CONSECUTIVE_EMPTY_DAYS = 3
+MAX_DAYS = 365
 
 
 def _parse_lang_from_attr_name(name):
@@ -143,9 +142,22 @@ def get_followed_theaters():
     if not ids:
         return {}
 
+    return lookup_theater_names(ids)
+
+
+def lookup_theater_names(ids):
+    """Theater id -> real name from the `theaters` table, falling back to a
+    placeholder only for ids `sync_theaters.py` hasn't synced yet (e.g. a
+    brand-new AMC location)."""
+    import supabase_client as sb
+
+    if not ids:
+        return {}
+
     id_list = ",".join(str(i) for i in ids)
     theaters = sb.select("theaters", {"select": "amc_id,name", "amc_id": f"in.({id_list})"})
-    return {t["amc_id"]: t["name"] for t in theaters}
+    names = {t["amc_id"]: t["name"] for t in theaters}
+    return {i: names.get(i, f"AMC Theatre {i}") for i in ids}
 
 
 def fetch_theater(theater_id, theater_name, movie_cache, skipped):
@@ -154,7 +166,6 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
     several followed theaters is only looked up once."""
     movies = {}
     today = date.today()
-    consecutive_empty = 0
     days_checked = 0
 
     for offset in range(MAX_DAYS):
@@ -165,12 +176,13 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
         showtimes = fetch_showtimes(theater_id, date_str)
         time.sleep(0.1)
 
+        # No early-exit on empty days: advance/fan-event sales for a single
+        # far-out date (e.g. a tentpole release months away) can appear with
+        # a long stretch of otherwise-empty days in between — bailing out
+        # after a few empty days silently drops those. See MAX_DAYS above for
+        # the actual backstop.
         if not showtimes:
-            consecutive_empty += 1
-            if consecutive_empty >= MAX_CONSECUTIVE_EMPTY_DAYS:
-                break
             continue
-        consecutive_empty = 0
 
         for s in showtimes:
             mid = s["movieId"]
@@ -319,7 +331,7 @@ def main():
     overrides = None
     if args.theater_ids:
         ids = [int(x) for x in args.theater_ids.split(",") if x.strip()]
-        overrides = {i: f"AMC Theatre {i}" for i in ids}
+        overrides = lookup_theater_names(ids)
 
     return run(theater_overrides=overrides, dry_run=args.dry_run, save_local=args.save_local)
 

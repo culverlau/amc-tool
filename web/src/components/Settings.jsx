@@ -1,16 +1,28 @@
 import { useEffect, useState } from 'react'
-import { updateSeatZoneDefaults, listPushTokens, removePushToken } from '@amc/shared'
+import { updateSeatZoneDefaults, listPushTokens, removePushToken, restartOnboarding } from '@amc/shared'
 import { supabase } from '../supabase'
 import NtfySetup from './NtfySetup'
 import AlertHistory from './AlertHistory'
 
-export default function Settings({ profile, onProfileChange, onClose, onSignOut }) {
+export default function Settings({ profile, onProfileChange, onClose, onSignOut, onRestartOnboarding }) {
   const [zone, setZone] = useState({
     row_min: profile.row_min, row_max: profile.row_max,
     seat_min: profile.seat_min, seat_max: profile.seat_max,
   })
   const [saving, setSaving] = useState(false)
   const [tokens, setTokens] = useState(null)
+  const [restarting, setRestarting] = useState(false)
+
+  async function replayOnboarding() {
+    setRestarting(true)
+    try {
+      const updated = await restartOnboarding(supabase)
+      onRestartOnboarding(updated)
+    } catch (e) {
+      console.error('[settings] restart onboarding failed', e)
+      setRestarting(false)
+    }
+  }
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -131,6 +143,20 @@ export default function Settings({ profile, onProfileChange, onClose, onSignOut 
                 ))}
               </div>
             )}
+          </section>
+
+          <section className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-1">Help</h3>
+              <p className="text-gray-600 text-xs">Replay the welcome tour — theater setup, alerts, and icon key.</p>
+            </div>
+            <button
+              onClick={replayOnboarding}
+              disabled={restarting}
+              className="flex-shrink-0 text-sm text-white bg-gray-800 hover:bg-gray-700 transition-colors font-medium px-3 py-2 rounded-lg disabled:opacity-50"
+            >
+              {restarting ? 'Loading...' : 'Replay onboarding'}
+            </button>
           </section>
 
           <button

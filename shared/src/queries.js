@@ -28,6 +28,20 @@ export async function completeOnboarding(sb) {
   return data
 }
 
+/** Clears onboarded_at so the first-run flow shows again — used by the
+ * "Replay onboarding" control in Settings. */
+export async function restartOnboarding(sb) {
+  const { data: { user } } = await sb.auth.getUser()
+  const { data, error } = await sb
+    .from('profiles')
+    .update({ onboarded_at: null })
+    .eq('id', user.id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 /** Swaps in a fresh random ntfy topic — e.g. if a user suspects theirs has
  * leaked (ntfy topics are unlisted but not access-controlled: anyone who
  * knows the name can subscribe). */

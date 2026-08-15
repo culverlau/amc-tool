@@ -151,7 +151,9 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
             </span>
           )}
           {captionBadge(s, false)}
-          {s.isAlmostSoldOut && <span className="text-[10px] text-orange-400">!</span>}
+          {s.isAlmostSoldOut && (
+            <span title="Almost sold out — very few seats remain" className="text-[10px] text-orange-400 font-semibold">!</span>
+          )}
         </a>
         {starBtn}
       </div>
