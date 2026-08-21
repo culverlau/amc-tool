@@ -78,7 +78,7 @@ function Dropdown({ label, options, selected, onChange }) {
 }
 
 
-export default function FilterBar({ theaters, formats, languages, filters, onChange }) {
+export default function FilterBar({ theaters, formats, languages, filters, onChange, hiddenCount = 0 }) {
   const theaterOptions = Object.entries(theaters).map(([id, name]) => ({
     value: id,
     label: name.replace(/^AMC /, ''),
@@ -118,9 +118,22 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           />
         </div>
 
-        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search) && (
+        {hiddenCount > 0 && (
           <button
-            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '' })}
+            onClick={() => onChange({ ...filters, showHidden: !filters.showHidden })}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              filters.showHidden
+                ? 'bg-red-700 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Show hidden ({hiddenCount})
+          </button>
+        )}
+
+        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search || filters.showHidden) && (
+          <button
+            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', showHidden: false })}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
           >
             Clear all

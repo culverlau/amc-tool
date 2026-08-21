@@ -19,6 +19,10 @@ import {
   removeFromWatchlist,
   getMovieScores,
   loadShowtimeData,
+  updateSeatZoneDefaults,
+  getHiddenMovies,
+  hideMovie,
+  unhideMovie,
 } from '@amc/shared'
 
 function Spinner() {
@@ -61,6 +65,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const [pendingShowtime, setPendingShowtime] = useState(null)
   const [view, setView] = useState(() => hashToView(window.location.hash))
   const [legendOpen, setLegendOpen] = useState(false)
+  const [hiddenMovies, setHiddenMovies] = useState(new Set())
 
   // Keep view in sync with the URL hash (back/forward button, direct links)
   useEffect(() => {
@@ -92,6 +97,25 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   useEffect(() => {
     getMovieScores(supabase).then(setMovieScores).catch(() => setMovieScores(new Map()))
   }, [])
+
+  useEffect(() => {
+    getHiddenMovies(supabase).then(setHiddenMovies).catch((e) => console.error('[hidden] load failed', e))
+  }, [])
+
+  function handleToggleHide(movieId) {
+    const id = String(movieId)
+    const isHidden = hiddenMovies.has(id)
+    setHiddenMovies((prev) => {
+      const next = new Set(prev)
+      isHidden ? next.delete(id) : next.add(id)
+      return next
+    })
+    const call = isHidden ? unhideMovie(supabase, movieId) : hideMovie(supabase, movieId)
+    call.catch((e) => {
+      console.error('[hidden] toggle failed', e)
+      getHiddenMovies(supabase).then(setHiddenMovies).catch(() => {})
+    })
+  }
 
   // Reload showtime data whenever the set of followed theaters changes
   useEffect(() => {
@@ -135,6 +159,16 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     const s = pendingShowtime
     const added = await addToWatchlist(supabase, s, zone)
     setWatchlistItems((prev) => [...prev, { ...added, availableSeats: null, soldOut: null, scrapedAt: null }])
+
+    // Whatever zone they just confirmed becomes the new default for next
+    // time — best-effort, shouldn't block the star itself if it fails.
+    const zoneChanged = zone.row_min !== profile.row_min || zone.row_max !== profile.row_max
+      || zone.seat_min !== profile.seat_min || zone.seat_max !== profile.seat_max
+    if (zoneChanged) {
+      updateSeatZoneDefaults(supabase, zone).then(setProfile).catch((e) => {
+        console.error('[watchlist] save zone as new default failed', e)
+      })
+    }
     setPendingShowtime(null)
   }
 
@@ -146,7 +180,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     })
   }
 
-  const [filters, setFilters] = useState({ theaters: [], formats: [], languages: [], search: '' })
+  const [filters, setFilters] = useState({ theaters: [], formats: [], languages: [], search: '', showHidden: false })
 
   const allFormats = useMemo(
     () => (data ? [...new Set(data.movies.flatMap((m) => m.formats))].sort() : []),
@@ -160,6 +194,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const filteredMovies = useMemo(() => {
     if (!data) return []
     return data.movies.filter((movie) => {
+      if (!filters.showHidden && hiddenMovies.has(String(movie.id))) return false
       if (filters.search) {
         const q = filters.search.toLowerCase()
         if (!movie.name.toLowerCase().includes(q)) return false
@@ -170,7 +205,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
       // Theater + format filtering happens inside MovieCard (it returns null if empty)
       return true
     })
-  }, [data, filters])
+  }, [data, filters, hiddenMovies])
 
   function formatUpdated(iso) {
     if (!iso) return null
@@ -259,6 +294,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           languages={allLanguages}
           filters={filters}
           onChange={setFilters}
+          hiddenCount={hiddenMovies.size}
         />
       )}
 
@@ -323,6 +359,8 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
                   watchlist={watchlistSet}
                   onToggleStar={handleToggleStar}
                   theaterNames={data.theaters}
+                  hidden={hiddenMovies.has(String(movie.id))}
+                  onToggleHide={handleToggleHide}
                 />
               )
             })}

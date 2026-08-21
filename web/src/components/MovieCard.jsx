@@ -55,7 +55,16 @@ function runtimeStr(minutes) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-export default function MovieCard({ movie, filters, watchlist, onToggleStar, theaterNames = {} }) {
+function EyeSlashIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M3 3l18 18M10.58 10.58a2 2 0 002.83 2.83M9.88 5.09A9.77 9.77 0 0112 5c5 0 9 4 10 7-.36 1.15-1.03 2.36-1.94 3.47M6.61 6.61C4.6 7.9 3.02 9.83 2 12c1 3 5 7 10 7 1.3 0 2.53-.27 3.66-.74" />
+    </svg>
+  )
+}
+
+export default function MovieCard({ movie, filters, watchlist, onToggleStar, theaterNames = {}, hidden = false, onToggleHide }) {
   // selection: null | { type: 'date', key: string } | { type: 'theater', key: number }
   const [selection, setSelection] = useState(null)
   const [imgError, setImgError] = useState(false)
@@ -164,7 +173,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
   const activeTheater = selection?.type === 'theater' ? selection.key : null
 
   return (
-    <article className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800/60 hover:border-gray-700 transition-colors">
+    <article className={`bg-gray-900 rounded-xl overflow-hidden border border-gray-800/60 hover:border-gray-700 transition-colors ${hidden ? 'opacity-60' : ''}`}>
       <div className="flex">
         {/* Poster */}
         <div className="flex-shrink-0 w-20 sm:w-28 bg-gray-800 self-stretch">
@@ -186,12 +195,31 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
         {/* Info */}
         <div className="flex-1 p-4 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <h2 className="text-base sm:text-lg font-bold text-white leading-tight">{movie.name}</h2>
-            {movie.mpaaRating && (
-              <span className="flex-shrink-0 text-xs border border-gray-600 px-1.5 py-0.5 text-gray-400 rounded">
-                {movie.mpaaRating}
-              </span>
-            )}
+            <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
+              {movie.name}
+              {hidden && (
+                <span className="ml-2 align-middle text-[10px] font-medium uppercase tracking-wider text-gray-500 border border-gray-700 rounded px-1.5 py-0.5">
+                  Hidden
+                </span>
+              )}
+            </h2>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {movie.mpaaRating && (
+                <span className="text-xs border border-gray-600 px-1.5 py-0.5 text-gray-400 rounded">
+                  {movie.mpaaRating}
+                </span>
+              )}
+              {onToggleHide && (
+                <button
+                  onClick={() => onToggleHide(movie.id)}
+                  title={hidden ? 'Unhide this movie' : "Hide this movie you've already seen"}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  <EyeSlashIcon className="w-3.5 h-3.5" />
+                  {hidden ? 'Unhide' : 'Hide'}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-gray-500">

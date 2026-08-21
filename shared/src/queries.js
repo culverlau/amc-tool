@@ -202,6 +202,30 @@ export async function removeFromWatchlist(sb, showtimeId) {
   if (error) throw error
 }
 
+// --------------------------------------------------------------- hidden movies
+
+/** Set of AMC movie ids (as strings, matching movie.id elsewhere) the user
+ * has hidden from their main list. */
+export async function getHiddenMovies(sb) {
+  const { data, error } = await sb.from('hidden_movies').select('movie_id')
+  if (error) throw error
+  return new Set((data || []).map((r) => String(r.movie_id)))
+}
+
+export async function hideMovie(sb, movieId) {
+  const { data: { user } } = await sb.auth.getUser()
+  const { error } = await sb.from('hidden_movies').upsert(
+    { user_id: user.id, movie_id: movieId },
+    { onConflict: 'user_id,movie_id' }
+  )
+  if (error) throw error
+}
+
+export async function unhideMovie(sb, movieId) {
+  const { error } = await sb.from('hidden_movies').delete().eq('movie_id', movieId)
+  if (error) throw error
+}
+
 // ------------------------------------------------------------- movie scores
 
 /** Map<amcId, {rt, rtSlug}> — overlaid on the scores baked into the data files. */
