@@ -75,6 +75,27 @@ Deno.serve(async (req) => {
     )
   }
 
+  // Best-effort: also warm the seat-layout cache for this theater's rooms.
+  // Fire-and-forget — a failure here must not fail the user-facing follow
+  // action, since scrape-layouts.yml also runs daily as a backstop. This
+  // races with fetch-showtimes.yml actually finishing (the layout scraper
+  // reads the showtime JSON that job writes) — accepted, since a newly
+  // followed theater usually already has data from a prior fetch, and the
+  // daily cron catches anything this run misses.
+  fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/scrape-layouts.yml/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ ref: "main", inputs: { theater_ids: String(amcId) } }),
+    },
+  ).catch((e) => console.error(`scrape-layouts dispatch failed (non-fatal): ${e}`))
+
   return new Response(JSON.stringify({ ok: true }), {
     status: 202,
     headers: { ...CORS_HEADERS, "Content-Type": "application/json" },

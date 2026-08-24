@@ -144,3 +144,17 @@ def storage_upload(bucket, path, data, content_type="application/json"):
         timeout=TIMEOUT * 2,
     )
     _check(r, f"storage upload {bucket}/{path}")
+
+
+def storage_download(bucket, path):
+    """GET an object from a Storage bucket. Raises SupabaseError on a
+    non-2xx (e.g. 404 for a theater that hasn't been fetched yet) — callers
+    should catch and treat that as "no data yet", not a hard failure."""
+    _require_config()
+    r = requests.get(
+        f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}",
+        headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+        timeout=TIMEOUT * 2,
+    )
+    _check(r, f"storage download {bucket}/{path}")
+    return r.json()

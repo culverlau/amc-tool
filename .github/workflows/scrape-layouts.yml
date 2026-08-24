@@ -1,0 +1,45 @@
+name: Scrape Seat Layouts
+
+# Auditorium seat layouts are static (rooms rarely get reconfigured), so this
+# only needs a loose daily cadence plus manual/on-demand dispatch (e.g. right
+# after a user follows a new theater, from trigger-fetch).
+on:
+  schedule:
+    - cron: '30 9 * * *'   # once daily
+  workflow_dispatch:
+    inputs:
+      theater_ids:
+        description: 'Comma-separated AMC theater ids to scrape (default: all followed theaters)'
+        required: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-sniper-${{ runner.os }}-playwright-1.60.0
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.60.0
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install chromium
+
+      - name: Scrape seat layouts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/scrape_layouts.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }}

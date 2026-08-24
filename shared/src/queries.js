@@ -226,6 +226,30 @@ export async function unhideMovie(sb, movieId) {
   if (error) throw error
 }
 
+// ------------------------------------------------------------- seat layouts
+
+/** Cached physical seat-layout range per (theater, layoutId) auditorium,
+ * scraped once by scripts/scrape_layouts.py and reused across every
+ * showtime sharing that room. Returns a Map keyed by `${theater_id}:${layout_id}`
+ * -> { row_min, row_max, seat_min, seat_max } — a missing entry means that
+ * room hasn't been scraped yet, not an error; callers should treat it as
+ * "no hint available". */
+export async function getSeatLayouts(sb, theaterIds) {
+  const ids = (theaterIds || []).map(Number).filter(Number.isFinite)
+  if (ids.length === 0) return new Map()
+  const { data, error } = await sb
+    .from('seat_layouts')
+    .select('theater_id, layout_id, row_min, row_max, seat_min, seat_max')
+    .in('theater_id', ids)
+  if (error) throw error
+  return new Map(
+    (data || []).map((r) => [
+      `${r.theater_id}:${r.layout_id}`,
+      { row_min: r.row_min, row_max: r.row_max, seat_min: r.seat_min, seat_max: r.seat_max },
+    ])
+  )
+}
+
 // ------------------------------------------------------------- movie scores
 
 /** Map<amcId, {rt, rtSlug}> — overlaid on the scores baked into the data files. */

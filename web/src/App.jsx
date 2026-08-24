@@ -23,6 +23,7 @@ import {
   getHiddenMovies,
   hideMovie,
   unhideMovie,
+  getSeatLayouts,
 } from '@amc/shared'
 
 function Spinner() {
@@ -66,6 +67,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const [view, setView] = useState(() => hashToView(window.location.hash))
   const [legendOpen, setLegendOpen] = useState(false)
   const [hiddenMovies, setHiddenMovies] = useState(new Set())
+  const [seatLayouts, setSeatLayouts] = useState(new Map())
 
   // Keep view in sync with the URL hash (back/forward button, direct links)
   useEffect(() => {
@@ -101,6 +103,13 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   useEffect(() => {
     getHiddenMovies(supabase).then(setHiddenMovies).catch((e) => console.error('[hidden] load failed', e))
   }, [])
+
+  useEffect(() => {
+    if (!followedTheaters?.length) return
+    getSeatLayouts(supabase, followedTheaters.map((t) => t.amc_id))
+      .then(setSeatLayouts)
+      .catch((e) => console.error('[seat layouts] load failed', e))
+  }, [followedTheaters])
 
   function handleToggleHide(movieId) {
     const id = String(movieId)
@@ -378,6 +387,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
         <StarDialog
           showtime={pendingShowtime}
           defaultZone={profile}
+          seatLayouts={seatLayouts}
           onConfirm={confirmStar}
           onCancel={() => setPendingShowtime(null)}
         />

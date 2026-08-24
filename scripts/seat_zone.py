@@ -44,3 +44,21 @@ def sort_seats(seats):
         p = parse_seat(s)
         return (p["row"], p["number"]) if p else (s, 0)
     return sorted(seats or [], key=key)
+
+
+def derive_layout_range(seats):
+    """Min/max row+seat spanning every real seat position in a raw
+    (unfiltered) seat list. Excludes row 'I' (AMC skips it in its own
+    numbering — never a real row). Row comparison uses (len(row), row) so
+    double-letter rows (e.g. 'AA') sort after all single-letter rows,
+    matching seat_in_zone()'s existing length-then-lexicographic rule."""
+    parsed = [p for p in (parse_seat(s) for s in (seats or [])) if p and p["row"] != "I"]
+    if not parsed:
+        return None
+    rows = [p["row"] for p in parsed]
+    return {
+        "row_min": min(rows, key=lambda r: (len(r), r)),
+        "row_max": max(rows, key=lambda r: (len(r), r)),
+        "seat_min": min(p["number"] for p in parsed),
+        "seat_max": max(p["number"] for p in parsed),
+    }

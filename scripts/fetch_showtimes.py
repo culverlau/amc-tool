@@ -241,6 +241,11 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
                 "isSoldOut": s.get("isSoldOut", False),
                 "isAlmostSoldOut": s.get("isAlmostSoldOut", False),
                 "purchaseUrl": s.get("purchaseUrl", ""),
+                # layoutId is stable per physical auditorium (confirmed against
+                # AMC's live API) — scripts/scrape_layouts.py uses it to cache a
+                # room's seat-layout range once instead of per showtime.
+                "auditorium": s.get("auditorium"),
+                "layoutId": s.get("layoutId"),
             })
 
     for m in movies.values():

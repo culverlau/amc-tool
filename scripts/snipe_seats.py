@@ -24,6 +24,7 @@ import requests
 from playwright.sync_api import sync_playwright
 
 import supabase_client as sb
+from browser_utils import launch_browser_context
 from seat_zone import filter_seats_to_zone, sort_seats
 
 EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
@@ -49,12 +50,6 @@ LATE_GRACE = timedelta(minutes=20)
 
 WALL_CLOCK_BUDGET_SECONDS = 240  # leaves headroom in the ~5-min cron interval
 SCRAPE_CONCURRENCY = 5
-
-_USER_AGENT = (
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-)
-
 
 # --------------------------------------------------------------- watchlist
 
@@ -164,11 +159,7 @@ _thread_resources_lock = threading.Lock()
 def _get_context():
     if not hasattr(_thread_local, 'context'):
         pw = sync_playwright().start()
-        browser = pw.chromium.launch(
-            headless=True,
-            args=['--disable-blink-features=AutomationControlled'],
-        )
-        context = browser.new_context(user_agent=_USER_AGENT)
+        browser, context = launch_browser_context(pw)
         _thread_local.context = context
         with _thread_resources_lock:
             _thread_resources.append((pw, browser))

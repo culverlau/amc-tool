@@ -13,7 +13,7 @@ function formatShowtimeLabel(s) {
   return { theater, dateStr, timeStr, format: s.format.replace(' at AMC', '') }
 }
 
-export default function StarDialog({ showtime, defaultZone, onConfirm, onCancel }) {
+export default function StarDialog({ showtime, defaultZone, seatLayouts, onConfirm, onCancel }) {
   const [rowMin, setRowMin] = useState(defaultZone?.row_min ?? DEFAULT_ZONE.row_min)
   const [rowMax, setRowMax] = useState(defaultZone?.row_max ?? DEFAULT_ZONE.row_max)
   const [seatMin, setSeatMin] = useState(defaultZone?.seat_min ?? DEFAULT_ZONE.seat_min)
@@ -22,6 +22,9 @@ export default function StarDialog({ showtime, defaultZone, onConfirm, onCancel 
   const [saving, setSaving] = useState(false)
 
   const { theater, dateStr, timeStr, format } = formatShowtimeLabel(showtime)
+  const layout = showtime.layoutId != null
+    ? seatLayouts?.get(`${showtime.theaterId}:${showtime.layoutId}`)
+    : null
 
   async function handleConfirm() {
     setError(null)
@@ -45,9 +48,14 @@ export default function StarDialog({ showtime, defaultZone, onConfirm, onCancel 
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-white font-semibold text-base mb-0.5">Watch for seats</h3>
-        <p className="text-gray-400 text-sm mb-5">
+        <p className={`text-gray-400 text-sm ${layout ? 'mb-1' : 'mb-5'}`}>
           {theater} · {dateStr} · {timeStr} · {format}
         </p>
+        {layout && (
+          <p className="text-xs text-gray-500 mb-4">
+            This auditorium: rows {layout.row_min}–{layout.row_max}, seats {layout.seat_min}–{layout.seat_max}
+          </p>
+        )}
 
         <div className="space-y-4">
           <div>
