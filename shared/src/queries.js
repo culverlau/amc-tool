@@ -226,6 +226,12 @@ export async function unhideMovie(sb, movieId) {
   if (error) throw error
 }
 
+export async function unhideMovies(sb, movieIds) {
+  if (!movieIds.length) return
+  const { error } = await sb.from('hidden_movies').delete().in('movie_id', movieIds)
+  if (error) throw error
+}
+
 // ------------------------------------------------------------ wishlist movies
 
 /** Movies the user wants to see, oldest-added first. movie_id is a string to

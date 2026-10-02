@@ -24,6 +24,7 @@ import {
   getHiddenMovies,
   hideMovie,
   unhideMovie,
+  unhideMovies,
   getSeatLayouts,
   getWishlist,
   addToWishlist,
@@ -178,6 +179,23 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     const call = isHidden ? unhideMovie(supabase, movieId) : hideMovie(supabase, movieId)
     call.catch((e) => {
       console.error('[hidden] toggle failed', e)
+      getHiddenMovies(supabase).then(setHiddenMovies).catch(() => {})
+    })
+  }
+
+  // Hidden movies split by whether they're in the loaded showtimes. Ones that
+  // aren't can't be unhidden from a card, so the filter bar offers a bulk clear.
+  const { hiddenShowingCount, staleHiddenIds } = useMemo(() => {
+    const showing = new Set((data?.movies || []).map((m) => String(m.id)))
+    const stale = [...hiddenMovies].filter((id) => !showing.has(id))
+    return { hiddenShowingCount: hiddenMovies.size - stale.length, staleHiddenIds: stale }
+  }, [data, hiddenMovies])
+
+  function handleClearStaleHidden() {
+    const ids = staleHiddenIds
+    setHiddenMovies((prev) => new Set([...prev].filter((id) => !ids.includes(id))))
+    unhideMovies(supabase, ids).catch((e) => {
+      console.error('[hidden] clear failed', e)
       getHiddenMovies(supabase).then(setHiddenMovies).catch(() => {})
     })
   }
@@ -412,7 +430,11 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           languages={allLanguages}
           filters={filters}
           onChange={setFilters}
-          hiddenCount={hiddenMovies.size}
+          hiddenCount={hiddenShowingCount}
+          // A not-yet-fetched theater's movies would look "not showing", so
+          // don't offer to clear until every followed theater has loaded.
+          staleHiddenCount={failedTheaters.length === 0 ? staleHiddenIds.length : 0}
+          onClearStaleHidden={handleClearStaleHidden}
         />
       )}
 
