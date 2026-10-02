@@ -213,9 +213,10 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
                 <button
                   onClick={() => onToggleWishlist(movie)}
                   title={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                  className={`text-base leading-none transition-colors ${wishlisted ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-300'}`}
+                  className={`flex items-center gap-1 text-xs transition-colors ${wishlisted ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-gray-300'}`}
                 >
-                  {wishlisted ? '♥' : '♡'}
+                  <span className="text-sm leading-none">{wishlisted ? '♥' : '♡'}</span>
+                  Wishlist
                 </button>
               )}
               {onToggleHide && (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo } from 'react'
 import FilterBar from './components/FilterBar'
 import MovieCard from './components/MovieCard'
 import StarDialog from './components/StarDialog'
@@ -71,6 +71,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const [pendingShowtime, setPendingShowtime] = useState(null)
   const [view, setView] = useState(() => hashToView(window.location.hash))
   const [legendOpen, setLegendOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [hiddenMovies, setHiddenMovies] = useState(new Set())
   const [seatLayouts, setSeatLayouts] = useState(new Map())
   const [wishlistItems, setWishlistItems] = useState([])
@@ -111,11 +112,20 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   }, [])
 
   function reloadWishlist() {
-    return getWishlist(supabase).then(setWishlistItems).catch((e) => console.error('[wishlist] load failed', e))
+    return getWishlist(supabase).then((items) => {
+      setWishlistItems(items)
+      setPinnedIds(new Set(items.map((i) => i.movie_id)))
+    }).catch((e) => console.error('[wishlist] load failed', e))
   }
   useEffect(() => { reloadWishlist() }, [])
 
   const wishlistSet = useMemo(() => new Set(wishlistItems.map((i) => i.movie_id)), [wishlistItems])
+
+  // Which movies are pinned to the top of the list. Deliberately a snapshot of
+  // wishlistSet rather than wishlistSet itself: re-sorting the instant you tap
+  // ♥ would yank that card (and your scroll position) to the top. It catches up
+  // on the next natural refresh — load, filter change, or switching views.
+  const [pinnedIds, setPinnedIds] = useState(new Set())
 
   function handleToggleWishlist(movie) {
     const id = String(movie.id)
@@ -261,8 +271,13 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
       return true
     })
     // Wishlisted movies pinned first; Array.sort is stable, so order within each group is kept
-    return matching.sort((a, b) => wishlistSet.has(String(b.id)) - wishlistSet.has(String(a.id)))
-  }, [data, filters, hiddenMovies, wishlistSet])
+    return matching.sort((a, b) => pinnedIds.has(String(b.id)) - pinnedIds.has(String(a.id)))
+  }, [data, filters, hiddenMovies, pinnedIds])
+
+  // Layout effect so the re-sort lands before paint (and before jumpToMovie's
+  // scroll) when returning from the Wishlist panel. wishlistSet intentionally
+  // isn't a dependency — see pinnedIds above.
+  useLayoutEffect(() => { setPinnedIds(wishlistSet) }, [data, filters, view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function formatUpdated(iso) {
     if (!iso) return null
@@ -273,65 +288,64 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
 
   const hasTheaters = (followedTheaters?.length ?? 0) > 0
 
+  const secondaryNav = [
+    { label: 'Key', title: 'What the icons mean', onClick: () => setLegendOpen(true) },
+    { label: 'Theaters', onClick: () => goTo('theaters') },
+    { label: 'Settings', onClick: () => goTo('settings') },
+    ...(profile.email === ADMIN_EMAIL ? [{ label: 'Admin', onClick: () => goTo('admin') }] : []),
+  ]
+
   return (
     <div className="min-h-screen bg-gray-950">
       {/* Header */}
       <header className="px-4 pt-6 pb-4 max-w-5xl mx-auto">
-        <div className="flex items-end justify-between">
-          <div>
+        <div className="flex items-start sm:items-end justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-white tracking-tight">NYC Showtimes</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {followedTheaters === null
-                ? ' '
+                ? ' '
                 : hasTheaters
                   ? followedTheaters.map((t) => t.name.replace(/^AMC /, '')).join(' · ')
                   : 'Follow a theater to get started'}
             </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
             {data?.lastUpdated && (
-              <p className="text-xs text-gray-600">
+              <p className="sm:hidden text-xs text-gray-600 mt-0.5">
+                Updated {formatUpdated(data.lastUpdated)}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            {data?.lastUpdated && (
+              <p className="hidden sm:block text-xs text-gray-600">
                 Updated {formatUpdated(data.lastUpdated)}
               </p>
             )}
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setLegendOpen(true)}
-                title="What the icons mean"
-                className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-              >
-                Key
-              </button>
-              <button
-                onClick={() => goTo('theaters')}
-                className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-              >
-                Theaters
-              </button>
-              <button
-                onClick={() => goTo('settings')}
-                className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-              >
-                Settings
-              </button>
-              {profile.email === ADMIN_EMAIL && (
-                <button
-                  onClick={() => goTo('admin')}
-                  className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-                >
-                  Admin
-                </button>
-              )}
+              {/* Secondary links: inline on desktop, behind a menu on mobile */}
+              <div className="hidden sm:flex items-center gap-1">
+                {secondaryNav.map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={item.onClick}
+                    title={item.title}
+                    className="text-sm px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={() => goTo('wishlist')}
-                className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                title="Wishlist"
+                className={`flex items-center gap-1.5 text-sm h-8 px-2.5 sm:px-3 rounded-lg transition-colors ${
                   wishlistItems.length > 0
                     ? 'bg-pink-500/10 text-pink-400 hover:bg-pink-500/20'
                     : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
                 }`}
               >
                 <span>♥</span>
-                <span>Wishlist</span>
+                <span className="hidden sm:inline">Wishlist</span>
                 {wishlistItems.length > 0 && (
                   <span className="bg-pink-500/20 text-pink-400 text-xs font-medium px-1.5 py-0.5 rounded-full">
                     {wishlistItems.length}
@@ -340,20 +354,51 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
               </button>
               <button
                 onClick={() => goTo('watchlist')}
-                className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                title="Watchlist"
+                className={`flex items-center gap-1.5 text-sm h-8 px-2.5 sm:px-3 rounded-lg transition-colors ${
                   watchlistItems.length > 0
                     ? 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
                     : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
                 }`}
               >
                 <span>★</span>
-                <span>Watchlist</span>
+                <span className="hidden sm:inline">Watchlist</span>
                 {watchlistItems.length > 0 && (
                   <span className="bg-yellow-500/20 text-yellow-400 text-xs font-medium px-1.5 py-0.5 rounded-full">
                     {watchlistItems.length}
                   </span>
                 )}
               </button>
+              <div className="relative sm:hidden">
+                <button
+                  onClick={() => setMenuOpen((o) => !o)}
+                  aria-label="Menu"
+                  aria-expanded={menuOpen}
+                  className={`flex items-center justify-center h-8 w-8 rounded-lg transition-colors ${
+                    menuOpen ? 'bg-gray-800 text-gray-200' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                  }`}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[45]" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-40 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1">
+                      {secondaryNav.map((item) => (
+                        <button
+                          key={item.label}
+                          onClick={() => { setMenuOpen(false); item.onClick() }}
+                          className="block w-full text-left text-sm px-4 py-2.5 text-gray-300 hover:bg-gray-800 transition-colors"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
