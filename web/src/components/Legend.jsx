@@ -4,6 +4,7 @@ export function LegendItems() {
   const rows = [
     { icon: <span className="text-yellow-400">★</span>, label: 'Starred (watching for seats)', desc: "You'll be alerted when a seat opens in your chosen zone." },
     { icon: <span className="text-gray-500">☆</span>, label: 'Not starred', desc: 'Tap to start watching this showtime for seats.' },
+    { icon: <span className="text-pink-400">♥</span>, label: 'Wishlisted movie', desc: 'Saved to your Wishlist and pinned to the top of the list.' },
     { icon: <span className="text-orange-400 font-semibold">!</span>, label: 'Almost sold out', desc: 'Very few seats remain — expect this showing to sell out soon.' },
     { icon: <span className="text-emerald-300 font-semibold border border-emerald-700/60 bg-emerald-900/40 rounded px-1 text-[10px]">OC</span>, label: 'Open Caption', desc: 'Subtitles are burned onto the screen for everyone in the auditorium.' },
     { icon: <span className="text-red-400">🍅 82%</span>, label: 'Rotten Tomatoes score', desc: 'Red = Fresh (60%+), yellow = Rotten. "NR" means not yet rated.' },

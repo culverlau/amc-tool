@@ -226,6 +226,39 @@ export async function unhideMovie(sb, movieId) {
   if (error) throw error
 }
 
+// ------------------------------------------------------------ wishlist movies
+
+/** Movies the user wants to see, oldest-added first. movie_id is a string to
+ * match movie.id elsewhere; movie_name/poster are a snapshot from when it was
+ * added, so it can be shown even once it's no longer playing anywhere followed. */
+export async function getWishlist(sb) {
+  const { data, error } = await sb
+    .from('wishlist_movies')
+    .select('movie_id, movie_name, poster, added_at')
+    .order('added_at')
+  if (error) throw error
+  return (data || []).map((r) => ({ ...r, movie_id: String(r.movie_id) }))
+}
+
+export async function addToWishlist(sb, movie) {
+  const { data: { user } } = await sb.auth.getUser()
+  const { data, error } = await sb
+    .from('wishlist_movies')
+    .upsert(
+      { user_id: user.id, movie_id: movie.id, movie_name: movie.name, poster: movie.poster || null },
+      { onConflict: 'user_id,movie_id' }
+    )
+    .select('movie_id, movie_name, poster, added_at')
+    .single()
+  if (error) throw error
+  return { ...data, movie_id: String(data.movie_id) }
+}
+
+export async function removeFromWishlist(sb, movieId) {
+  const { error } = await sb.from('wishlist_movies').delete().eq('movie_id', movieId)
+  if (error) throw error
+}
+
 // ------------------------------------------------------------- seat layouts
 
 /** Cached physical seat-layout range per (theater, layoutId) auditorium,

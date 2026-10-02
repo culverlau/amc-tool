@@ -3,6 +3,7 @@ import FilterBar from './components/FilterBar'
 import MovieCard from './components/MovieCard'
 import StarDialog from './components/StarDialog'
 import WatchlistPanel from './components/WatchlistPanel'
+import WishlistPanel from './components/WishlistPanel'
 import TheaterPicker from './components/TheaterPicker'
 import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
@@ -24,6 +25,9 @@ import {
   hideMovie,
   unhideMovie,
   getSeatLayouts,
+  getWishlist,
+  addToWishlist,
+  removeFromWishlist,
 } from '@amc/shared'
 
 function Spinner() {
@@ -37,6 +41,7 @@ function Spinner() {
 
 function hashToView(hash) {
   if (hash === '#watchlist') return 'watchlist'
+  if (hash === '#wishlist') return 'wishlist'
   if (hash === '#theaters') return 'theaters'
   if (hash === '#settings') return 'settings'
   if (hash === '#admin') return 'admin'
@@ -68,6 +73,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   const [legendOpen, setLegendOpen] = useState(false)
   const [hiddenMovies, setHiddenMovies] = useState(new Set())
   const [seatLayouts, setSeatLayouts] = useState(new Map())
+  const [wishlistItems, setWishlistItems] = useState([])
 
   // Keep view in sync with the URL hash (back/forward button, direct links)
   useEffect(() => {
@@ -103,6 +109,46 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   useEffect(() => {
     getHiddenMovies(supabase).then(setHiddenMovies).catch((e) => console.error('[hidden] load failed', e))
   }, [])
+
+  function reloadWishlist() {
+    return getWishlist(supabase).then(setWishlistItems).catch((e) => console.error('[wishlist] load failed', e))
+  }
+  useEffect(() => { reloadWishlist() }, [])
+
+  const wishlistSet = useMemo(() => new Set(wishlistItems.map((i) => i.movie_id)), [wishlistItems])
+
+  function handleToggleWishlist(movie) {
+    const id = String(movie.id)
+    if (wishlistSet.has(id)) {
+      setWishlistItems((prev) => prev.filter((i) => i.movie_id !== id))
+      removeFromWishlist(supabase, movie.id).catch((e) => {
+        console.error('[wishlist] remove failed', e)
+        reloadWishlist()
+      })
+    } else {
+      setWishlistItems((prev) => [...prev, { movie_id: id, movie_name: movie.name, poster: movie.poster || null, added_at: new Date().toISOString() }])
+      addToWishlist(supabase, movie).catch((e) => {
+        console.error('[wishlist] add failed', e)
+        reloadWishlist()
+      })
+    }
+  }
+
+  function handleRemoveFromWishlist(movieId) {
+    setWishlistItems((prev) => prev.filter((i) => i.movie_id !== movieId))
+    removeFromWishlist(supabase, movieId).catch((e) => {
+      console.error('[wishlist] remove failed', e)
+      reloadWishlist()
+    })
+  }
+
+  // Close the wishlist and scroll to that movie's card in the main list
+  function jumpToMovie(movieId) {
+    closeOverlay()
+    requestAnimationFrame(() => {
+      document.getElementById(`movie-${movieId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
 
   useEffect(() => {
     if (!followedTheaters?.length) return
@@ -202,7 +248,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
 
   const filteredMovies = useMemo(() => {
     if (!data) return []
-    return data.movies.filter((movie) => {
+    const matching = data.movies.filter((movie) => {
       if (!filters.showHidden && hiddenMovies.has(String(movie.id))) return false
       if (filters.search) {
         const q = filters.search.toLowerCase()
@@ -214,7 +260,9 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
       // Theater + format filtering happens inside MovieCard (it returns null if empty)
       return true
     })
-  }, [data, filters, hiddenMovies])
+    // Wishlisted movies pinned first; Array.sort is stable, so order within each group is kept
+    return matching.sort((a, b) => wishlistSet.has(String(b.id)) - wishlistSet.has(String(a.id)))
+  }, [data, filters, hiddenMovies, wishlistSet])
 
   function formatUpdated(iso) {
     if (!iso) return null
@@ -274,6 +322,22 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
                   Admin
                 </button>
               )}
+              <button
+                onClick={() => goTo('wishlist')}
+                className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                  wishlistItems.length > 0
+                    ? 'bg-pink-500/10 text-pink-400 hover:bg-pink-500/20'
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                <span>♥</span>
+                <span>Wishlist</span>
+                {wishlistItems.length > 0 && (
+                  <span className="bg-pink-500/20 text-pink-400 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                    {wishlistItems.length}
+                  </span>
+                )}
+              </button>
               <button
                 onClick={() => goTo('watchlist')}
                 className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
@@ -361,8 +425,8 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
                 ? { ...movie, scores: { ...movie.scores, ...live } }
                 : movie
               return (
+                <div key={movie.id} id={`movie-${movie.id}`} className="scroll-mt-36 empty:hidden">
                 <MovieCard
-                  key={movie.id}
                   movie={merged}
                   filters={filters}
                   watchlist={watchlistSet}
@@ -370,7 +434,10 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
                   theaterNames={data.theaters}
                   hidden={hiddenMovies.has(String(movie.id))}
                   onToggleHide={handleToggleHide}
+                  wishlisted={wishlistSet.has(String(movie.id))}
+                  onToggleWishlist={handleToggleWishlist}
                 />
+                </div>
               )
             })}
           </div>
@@ -398,6 +465,16 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           items={watchlistItems}
           theaterNames={data?.theaters || {}}
           onRemove={handleRemoveFromWatchlist}
+          onClose={closeOverlay}
+        />
+      )}
+
+      {view === 'wishlist' && (
+        <WishlistPanel
+          items={wishlistItems}
+          movies={data?.movies || []}
+          onRemove={handleRemoveFromWishlist}
+          onSelect={jumpToMovie}
           onClose={closeOverlay}
         />
       )}

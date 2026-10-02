@@ -64,7 +64,7 @@ function EyeSlashIcon({ className }) {
   )
 }
 
-export default function MovieCard({ movie, filters, watchlist, onToggleStar, theaterNames = {}, hidden = false, onToggleHide }) {
+export default function MovieCard({ movie, filters, watchlist, onToggleStar, theaterNames = {}, hidden = false, onToggleHide, wishlisted = false, onToggleWishlist }) {
   // selection: null | { type: 'date', key: string } | { type: 'theater', key: number }
   const [selection, setSelection] = useState(null)
   const [imgError, setImgError] = useState(false)
@@ -173,7 +173,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
   const activeTheater = selection?.type === 'theater' ? selection.key : null
 
   return (
-    <article className={`bg-gray-900 rounded-xl overflow-hidden border border-gray-800/60 hover:border-gray-700 transition-colors ${hidden ? 'opacity-60' : ''}`}>
+    <article className={`bg-gray-900 rounded-xl overflow-hidden border transition-colors ${wishlisted ? 'border-pink-500/40 hover:border-pink-500/60' : 'border-gray-800/60 hover:border-gray-700'} ${hidden ? 'opacity-60' : ''}`}>
       <div className="flex">
         {/* Poster */}
         <div className="flex-shrink-0 w-20 sm:w-28 bg-gray-800 self-stretch">
@@ -208,6 +208,15 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
                 <span className="text-xs border border-gray-600 px-1.5 py-0.5 text-gray-400 rounded">
                   {movie.mpaaRating}
                 </span>
+              )}
+              {onToggleWishlist && (
+                <button
+                  onClick={() => onToggleWishlist(movie)}
+                  title={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                  className={`text-base leading-none transition-colors ${wishlisted ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-300'}`}
+                >
+                  {wishlisted ? '♥' : '♡'}
+                </button>
               )}
               {onToggleHide && (
                 <button

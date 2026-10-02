@@ -145,6 +145,14 @@ the single shape the UI consumes.
   `snipe_cap` overrides. UI gating is cosmetic only — the actual enforcement is RLS policies in
   `supabase/migrations/0005_admin_rls.sql` keyed on the same email via `auth.jwt() ->> 'email'`.
 
+### Wishlist (movies) vs. watchlist (showtimes)
+
+- `wishlist_movies` (migration `0010`) is per-user, keyed by AMC movie id like `hidden_movies`:
+  display-only, no sniper/notification involvement. Wishlisted movies are pinned to the top of the
+  main list and shown in the ♥ Wishlist view (`WishlistPanel.jsx`). Rows snapshot `movie_name`/
+  `poster` so a movie still shows there after it stops playing at every followed theater.
+- Don't confuse it with `watchlist` (★), which is per-showtime seat sniping.
+
 ### `seat_zone.py` / `seats.js` parity
 
 Both implementations are tested against one shared fixture (`shared/seat_zone_fixture.json`) —
