@@ -38,4 +38,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SNIPER_DEBUG_NTFY_TOPIC: ${{ secrets.SNIPER_DEBUG_NTFY_TOPIC }}
-        run: python scripts/snipe_seats.py
+        run: xvfb-run -a python scripts/snipe_seats.py

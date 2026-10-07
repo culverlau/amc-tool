@@ -42,4 +42,4 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/scrape_layouts.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }}
+        run: xvfb-run -a python scripts/scrape_layouts.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }}
