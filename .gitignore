@@ -9,3 +9,5 @@ sniper_state.json
 *.local
 omdb_api.txt
 supabase/.temp/
+.vercel
+.env*
