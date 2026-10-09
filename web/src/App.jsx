@@ -9,6 +9,7 @@ import Settings from './components/Settings'
 import Onboarding from './components/Onboarding'
 import Admin from './components/Admin'
 import LegendModal from './components/Legend'
+import InstallBanner from './components/InstallBanner'
 import { SignInScreen, WaitlistScreen, LoadingScreen } from './components/AuthGate'
 import { useAuth } from './useAuth'
 import { supabase, SUPABASE_URL } from './supabase'
@@ -439,6 +440,8 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
       )}
 
       {/* Main content */}
+      <InstallBanner />
+
       <main className="max-w-5xl mx-auto px-4 py-6">
         {followedTheaters === null && (
           <div className="flex items-center justify-center py-24 text-gray-500">

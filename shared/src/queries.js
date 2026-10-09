@@ -327,6 +327,40 @@ export async function removePushToken(sb, id) {
   if (error) throw error
 }
 
+// ---------------------------------------------------------------- web push
+
+/** `subscription` is `PushSubscription.toJSON()`: { endpoint, keys: { p256dh, auth } }. */
+export async function saveWebPushSubscription(sb, subscription, { userAgent } = {}) {
+  const { data: { user } } = await sb.auth.getUser()
+  const { error } = await sb
+    .from('web_push_subscriptions')
+    .upsert(
+      {
+        user_id: user.id,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+        user_agent: userAgent,
+      },
+      { onConflict: 'endpoint' }
+    )
+  if (error) throw error
+}
+
+export async function listWebPushSubscriptions(sb) {
+  const { data, error } = await sb
+    .from('web_push_subscriptions')
+    .select('id, endpoint, user_agent, created_at')
+    .order('created_at')
+  if (error) throw error
+  return data || []
+}
+
+export async function removeWebPushSubscription(sb, id) {
+  const { error } = await sb.from('web_push_subscriptions').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ------------------------------------------------------------------- admin
 // All of these only work for the hardcoded admin email — enforced by RLS
 // (supabase/migrations/0005_admin_rls.sql), not by anything in this file.

@@ -17,7 +17,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-sniper-${{ runner.os }}-playwright-1.60.0
+          key: pip-sniper-${{ runner.os }}-playwright-1.60.0-pywebpush
 
       - name: Cache Playwright browser
         id: playwright-cache
@@ -38,4 +38,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SNIPER_DEBUG_NTFY_TOPIC: ${{ secrets.SNIPER_DEBUG_NTFY_TOPIC }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
         run: xvfb-run -a python scripts/snipe_seats.py

@@ -110,7 +110,15 @@ the single shape the UI consumes.
 - Expiry: a watchlist row is skipped and deleted once its showtime is >20 min past `starts_at`.
   Since `starts_at` is UTC, this is correct regardless of theater timezone with no ET-specific
   math (the old single-tenant version needed `America/New_York` handling for exactly this reason).
-- Real per-user notifications currently go out via ntfy.sh: every profile gets its own random
+- **PWA + Web Push** is the primary notification channel: the site is installable (`web/public/manifest.webmanifest`,
+  `sw.js`, icons in `web/public/icons/`). `sw.js` caches nothing — it only handles `push`/`notificationclick`.
+  Subscriptions live in `web_push_subscriptions` (migration `0011`, RLS own-rows); the sniper's `send_web_push`
+  (pywebpush, VAPID) sends alongside Expo/ntfy and prunes 404/410 subscriptions. iOS only delivers web push to apps
+  added to the Home Screen from Safari (iOS 16.4+), so install guidance is built in: `InstallBanner`, `InstallGuide`
+  (shared `InstallSteps`), an onboarding `install` step, and `WebPushSetup` in Settings/onboarding (`web/src/lib/pwa.js`
+  has the detection helpers). Needs `VITE_VAPID_PUBLIC_KEY` (Vercel/`web/.env`) and `VAPID_PRIVATE_KEY` +
+  `VAPID_SUBJECT` (GitHub secrets). Generate keys with `npx web-push generate-vapid-keys`.
+- ntfy.sh remains as a fallback channel: per-user notifications also go out via ntfy.sh: every profile gets its own random
   `ntfy_topic` (`profiles.ntfy_topic`, set at signup), and `scripts/snipe_seats.py` sends each
   alert to the watching user's own topic — the interim channel until the Expo app exists and
   `push_tokens` has real registrations (Expo Push is already wired up and will take over once
@@ -163,7 +171,7 @@ zone-matching logic changes.
 ### Not yet built (see the plan doc)
 
 - The Expo app (`app/`) — screens, push registration, EAS build/TestFlight.
-- Web push / Sign in with Apple.
+- Sign in with Apple.
 
 ## Secrets
 
@@ -171,6 +179,8 @@ zone-matching logic changes.
   relative to the repo root regardless of cwd).
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — GitHub Actions secrets, used only by
   `scripts/supabase_client.py`. Never in client bundles.
+- `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — GitHub Actions secrets for web push (sniper only). The matching public key
+  is `VITE_VAPID_PUBLIC_KEY` in Vercel / `web/.env`.
 - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — Vercel env vars (and `web/.env` locally, from
   `web/.env.example`). Safe to be public; RLS on the signed-in user's JWT is the real boundary.
 - `SNIPER_DEBUG_NTFY_TOPIC` — optional, personal ntfy.sh topic for testing the sniper before the

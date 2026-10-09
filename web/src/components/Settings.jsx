@@ -3,6 +3,9 @@ import { updateSeatZoneDefaults, listPushTokens, removePushToken, restartOnboard
 import { supabase } from '../supabase'
 import NtfySetup from './NtfySetup'
 import AlertHistory from './AlertHistory'
+import WebPushSetup from './WebPushSetup'
+import { InstallSteps, WhyInstall } from './InstallGuide'
+import { isStandalone, platform } from '../lib/pwa'
 
 export default function Settings({ profile, onProfileChange, onClose, onSignOut, onRestartOnboarding }) {
   const [zone, setZone] = useState({
@@ -109,7 +112,36 @@ export default function Settings({ profile, onProfileChange, onClose, onSignOut,
 
           <section>
             <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">Seat alerts</h3>
-            <NtfySetup profile={profile} onProfileChange={onProfileChange} />
+            {!isStandalone() && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-3">
+                <p className="text-sm text-white font-medium mb-2">Install the app</p>
+                <div className="mb-4"><WhyInstall /></div>
+                <InstallSteps />
+              </div>
+            )}
+            <WebPushSetup />
+            <details className="mt-4">
+              <summary className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+                Other option: ntfy.sh app
+              </summary>
+              <div className="mt-3">
+                <NtfySetup profile={profile} onProfileChange={onProfileChange} />
+              </div>
+            </details>
+            <details className="mt-3">
+              <summary className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+                Notifications not working?
+              </summary>
+              <ul className="mt-3 space-y-2 text-xs text-gray-500 list-disc pl-5">
+                {platform() === 'ios' && (
+                  <li>On iPhone/iPad you need iOS 16.4+, and the app must be opened from its Home Screen icon — not from Safari.</li>
+                )}
+                <li>Tap Enable and choose Allow when asked. If you tapped Block, re-enable notifications for this app in your device or browser settings.</li>
+                <li>Turn off Focus / Do Not Disturb, or allow this app through it.</li>
+                <li>Alerts only fire for showtimes you've starred (★) at a followed theater.</li>
+                <li>Use "Send a test notification" above to check this device.</li>
+              </ul>
+            </details>
           </section>
 
           <AlertHistory />
@@ -122,7 +154,7 @@ export default function Settings({ profile, onProfileChange, onClose, onSignOut,
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                 <p className="text-gray-400 text-sm">No devices registered.</p>
                 <p className="text-gray-600 text-xs mt-1">
-                  Install the AMC Sniper app and sign in to get push notifications when seats open.
+                  Install this site as an app and enable notifications above to get alerts when seats open.
                 </p>
               </div>
             ) : (

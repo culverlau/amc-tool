@@ -13,6 +13,7 @@ per-user (`notifications_sent`) instead of one global sniper_state.json.
 
 import argparse
 import hashlib
+import json
 import os
 import sys
 import threading
@@ -28,6 +29,11 @@ from browser_utils import launch_browser_context
 from seat_zone import filter_seats_to_zone, sort_seats
 
 EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
+
+# Web Push (PWA). Unset VAPID_PRIVATE_KEY disables the channel. VAPID_SUBJECT
+# must be a mailto: or https: URL identifying the sender.
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
+VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:admin@example.com')
 
 # Real per-user delivery is each user's own profiles.ntfy_topic (see
 # send_ntfy / dispatch_for_row) — the interim channel until the Expo app
@@ -311,6 +317,51 @@ def send_expo_push(tokens, title, body):
         print(f'  Expo push failed: {e}')
 
 
+_web_push_cache = {}
+
+
+def get_web_push_subs(user_id):
+    if user_id not in _web_push_cache:
+        _web_push_cache[user_id] = sb.select('web_push_subscriptions', {
+            'select': 'endpoint,p256dh,auth', 'user_id': f'eq.{user_id}',
+        })
+    return _web_push_cache[user_id]
+
+
+def send_web_push(subs, title, body, url='/#watchlist'):
+    """Browser/PWA push. Subscriptions that come back 404/410 are expired or
+    revoked by the user — prune them, like send_expo_push does for dead devices."""
+    if not subs or not VAPID_PRIVATE_KEY:
+        return
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        print('  pywebpush not installed — skipping web push')
+        return
+    payload = json.dumps({'title': title, 'body': body, 'url': url})
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={
+                    'endpoint': sub['endpoint'],
+                    'keys': {'p256dh': sub['p256dh'], 'auth': sub['auth']},
+                },
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={'sub': VAPID_SUBJECT},
+                ttl=3600,
+            )
+        except WebPushException as e:
+            status = getattr(e.response, 'status_code', None)
+            if status in (404, 410):
+                print('  pruning expired web push subscription')
+                sb.delete('web_push_subscriptions', {'endpoint': f"eq.{sub['endpoint']}"})
+            else:
+                print(f'  web push failed ({status}): {e}')
+        except Exception as e:
+            print(f'  web push failed: {e}')
+
+
 def send_ntfy(topic, title, body):
     """Interim per-user delivery channel until the Expo app ships and
     push_tokens has real registrations — each user subscribes to their own
@@ -369,6 +420,7 @@ def dispatch_for_row(row, scrape_result, dry_run=False):
 
     if not dry_run and not is_debug:
         send_expo_push(get_push_tokens(row['user_id']), title, body)
+        send_web_push(get_web_push_subs(row['user_id']), title, body)
         send_ntfy((row.get('profiles') or {}).get('ntfy_topic'), title, body)
         send_ntfy(DEBUG_NTFY_TOPIC, title, body)
         record_notification(row['user_id'], row['showtime_id'], zone_seats)

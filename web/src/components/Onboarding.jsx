@@ -2,9 +2,15 @@ import { useEffect, useState } from 'react'
 import { searchTheaters, followTheater, completeOnboarding } from '@amc/shared'
 import { supabase } from '../supabase'
 import NtfySetup from './NtfySetup'
+import WebPushSetup from './WebPushSetup'
+import { InstallSteps, WhyInstall } from './InstallGuide'
+import { isStandalone } from '../lib/pwa'
 import { LegendItems } from './Legend'
 
-const STEPS = ['welcome', 'theater', 'alerts', 'key']
+// The install step is skipped when the app is already running installed.
+const STEPS = isStandalone()
+  ? ['welcome', 'theater', 'alerts', 'key']
+  : ['welcome', 'theater', 'install', 'alerts', 'key']
 
 export default function Onboarding({ profile: initialProfile, onDone }) {
   const [profile, setProfile] = useState(initialProfile)
@@ -15,6 +21,8 @@ export default function Onboarding({ profile: initialProfile, onDone }) {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
+
+  const next = () => setStep((n) => Math.min(n + 1, STEPS.length - 1))
 
   async function finish() {
     setFinishing(true)
@@ -49,10 +57,11 @@ export default function Onboarding({ profile: initialProfile, onDone }) {
 
       <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
         <div className="max-w-md mx-auto w-full p-6">
-          {step === 0 && <WelcomeStep onNext={() => setStep(1)} />}
-          {step === 1 && <TheaterStep onNext={() => setStep(2)} />}
-          {step === 2 && <AlertsStep profile={profile} onProfileChange={setProfile} onNext={() => setStep(3)} />}
-          {step === 3 && <KeyStep finishing={finishing} onFinish={finish} />}
+          {STEPS[step] === 'welcome' && <WelcomeStep onNext={next} />}
+          {STEPS[step] === 'theater' && <TheaterStep onNext={next} />}
+          {STEPS[step] === 'install' && <InstallStep onNext={next} />}
+          {STEPS[step] === 'alerts' && <AlertsStep profile={profile} onProfileChange={setProfile} onNext={next} />}
+          {STEPS[step] === 'key' && <KeyStep finishing={finishing} onFinish={finish} />}
         </div>
       </div>
     </div>
@@ -162,6 +171,40 @@ function TheaterStep({ onNext }) {
   )
 }
 
+function InstallStep({ onNext }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="text-white font-semibold text-lg">Install the app</h2>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500 border border-gray-700 rounded px-1.5 py-0.5">
+          Recommended
+        </span>
+      </div>
+      <div className="mb-5"><WhyInstall /></div>
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <InstallSteps />
+      </div>
+      <p className="text-gray-600 text-xs mt-3">
+        After installing, open the app from its icon and sign in again — your setup so far is saved.
+      </p>
+      <div className="flex gap-2 mt-6">
+        <button
+          onClick={onNext}
+          className="flex-1 text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors font-medium px-4 py-3 rounded-lg"
+        >
+          Skip for now
+        </button>
+        <button
+          onClick={onNext}
+          className="flex-1 text-sm text-white bg-red-700 hover:bg-red-600 transition-colors font-medium px-4 py-3 rounded-lg"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AlertsStep({ profile, onProfileChange, onNext }) {
   return (
     <div>
@@ -175,7 +218,15 @@ function AlertsStep({ profile, onProfileChange, onNext }) {
         This is how you'll hear about open seats — but it's entirely optional. Skip it now
         and set it up later from Settings whenever you're ready.
       </p>
-      <NtfySetup profile={profile} onProfileChange={onProfileChange} />
+      <WebPushSetup />
+      <details className="mt-4 group">
+        <summary className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer select-none">
+          Other option: ntfy.sh app
+        </summary>
+        <div className="mt-3">
+          <NtfySetup profile={profile} onProfileChange={onProfileChange} />
+        </div>
+      </details>
       <div className="flex gap-2 mt-6">
         <button
           onClick={onNext}
