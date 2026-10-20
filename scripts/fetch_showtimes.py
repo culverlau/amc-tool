@@ -47,6 +47,15 @@ STORAGE_BUCKET = "showtimes"
 
 MAX_DAYS = 365
 
+# Consecutive failed days before a theater is given up on. A lone 403/5xx is
+# just a warning; a long streak means the key is bad or we're being blocked.
+MAX_CONSECUTIVE_FAILURES = 5
+
+
+class TheaterFetchError(RuntimeError):
+    """A theater's fetch was too broken to trust. Its Storage file is left
+    untouched rather than overwritten with empty/partial data."""
+
 
 def _parse_lang_from_attr_name(name):
     m = re.match(r'^(\w+)\s+(?:Spoken|Language)\b', name)
@@ -71,6 +80,8 @@ def fetch_movie(movie_id):
 
 def fetch_showtimes(theater_id, date_str):
     import requests
+    """Returns (showtimes, ok). ok is False when the day couldn't be fetched
+    (as opposed to AMC genuinely having no showtimes, which is a 404/empty)."""
     showtimes = []
     page = 1
     while True:
@@ -79,21 +90,22 @@ def fetch_showtimes(theater_id, date_str):
             resp = requests.get(url, headers=HEADERS, timeout=15)
         except requests.Timeout:
             print(f'Warning: fetch_showtimes theater={theater_id} {date_str} timed out')
-            break
+            return showtimes, False
         except Exception as e:
             print(f'Warning: fetch_showtimes theater={theater_id} {date_str} failed: {e}')
+            return showtimes, False
+        if resp.status_code == 404:
             break
         if resp.status_code != 200:
-            if resp.status_code != 404:
-                print(f'Warning: fetch_showtimes theater={theater_id} {date_str} got HTTP {resp.status_code}')
-            break
+            print(f'Warning: fetch_showtimes theater={theater_id} {date_str} got HTTP {resp.status_code}')
+            return showtimes, False
         data = resp.json()
         batch = data.get("_embedded", {}).get("showtimes", [])
         showtimes.extend(batch)
         if len(batch) < 100:
             break
         page += 1
-    return showtimes
+    return showtimes, True
 
 
 def get_format(showtime):
@@ -167,14 +179,26 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
     movies = {}
     today = date.today()
     days_checked = 0
+    ok_days = 0
+    consecutive_failures = 0
 
     for offset in range(MAX_DAYS):
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         days_checked = offset + 1
 
-        showtimes = fetch_showtimes(theater_id, date_str)
+        showtimes, ok = fetch_showtimes(theater_id, date_str)
         time.sleep(0.1)
+
+        if ok:
+            ok_days += 1
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                raise TheaterFetchError(
+                    f"{consecutive_failures} consecutive failed days (through {date_str})"
+                )
 
         # No early-exit on empty days: advance/fan-event sales for a single
         # far-out date (e.g. a tentpole release months away) can appear with
@@ -248,6 +272,9 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
                 "layoutId": s.get("layoutId"),
             })
 
+    if ok_days == 0:
+        raise TheaterFetchError("no day could be fetched")
+
     for m in movies.values():
         m["formats"] = sorted(m["formats"])
         m["languages"] = sorted(m["languages"])
@@ -276,13 +303,19 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
     skipped = set()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     index = {}
+    failed = []
 
     if save_local:
         os.makedirs(save_local, exist_ok=True)
 
     for theater_id, theater_name in theaters.items():
         print(f"\n{theater_name} ({theater_id})...")
-        movie_list, days_checked = fetch_theater(theater_id, theater_name, movie_cache, skipped)
+        try:
+            movie_list, days_checked = fetch_theater(theater_id, theater_name, movie_cache, skipped)
+        except TheaterFetchError as e:
+            print(f"  Error: {e} — skipping upload, existing data left untouched")
+            failed.append(theater_name)
+            continue
         print(f"  {len(movie_list)} movies across {days_checked} days checked")
 
         output = {
@@ -312,13 +345,17 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
     if save_local:
         with open(os.path.join(save_local, "index.json"), "w") as f:
             f.write(index_payload)
-    if not dry_run:
+    # Skip the index when any theater failed so it doesn't drop their entries.
+    if not dry_run and not failed:
         import supabase_client as sb
         sb.storage_upload(STORAGE_BUCKET, "index.json", index_payload)
 
-    print(f"\nDone. {len(theaters)} theater file(s) {'written locally' if save_local else ''}"
+    print(f"\nDone. {len(theaters) - len(failed)}/{len(theaters)} theater file(s) {'written locally' if save_local else ''}"
           f"{' and ' if save_local and not dry_run else ''}"
           f"{'uploaded to Storage' if not dry_run else ''}.")
+    if failed:
+        print(f"FAILED ({len(failed)}): {failed}")
+        return 1
     return 0
 
 
