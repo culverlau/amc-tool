@@ -46,6 +46,10 @@ Deno.serve(async (req) => {
     })
   }
 
+  // Peek: a temporary fetch for a theater the caller doesn't follow. The
+  // workflow writes it under peek/ in Storage and skips follow bookkeeping.
+  const peek = (body as { peek?: unknown })?.peek === true
+
   if (!GITHUB_TOKEN) {
     return new Response(JSON.stringify({ error: "server misconfigured: missing GITHUB_PAT" }), {
       status: 500,
@@ -63,7 +67,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
       },
-      body: JSON.stringify({ ref: "main", inputs: { theater_ids: String(amcId) } }),
+      body: JSON.stringify({ ref: "main", inputs: { theater_ids: String(amcId), peek: peek ? "true" : "false" } }),
     },
   )
 
@@ -82,7 +86,7 @@ Deno.serve(async (req) => {
   // reads the showtime JSON that job writes) — accepted, since a newly
   // followed theater usually already has data from a prior fetch, and the
   // daily cron catches anything this run misses.
-  fetch(
+  if (!peek) fetch(
     `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/scrape-layouts.yml/dispatches`,
     {
       method: "POST",

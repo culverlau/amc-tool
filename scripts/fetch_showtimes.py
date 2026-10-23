@@ -46,6 +46,8 @@ HEADERS = {"X-AMC-Vendor-Key": API_KEY}
 STORAGE_BUCKET = "showtimes"
 
 MAX_DAYS = 365
+# Peeks are for a quick look while traveling, so only cover the coming week.
+PEEK_DAYS = 7
 
 # Consecutive failed days before a theater is given up on. A lone 403/5xx is
 # just a warning; a long streak means the key is bad or we're being blocked.
@@ -172,17 +174,17 @@ def lookup_theater_names(ids):
     return {i: names.get(i, f"AMC Theatre {i}") for i in ids}
 
 
-def fetch_theater(theater_id, theater_name, movie_cache, skipped):
-    """Fetch all upcoming showtimes for one theater. `movie_cache` and
-    `skipped` are shared across theaters in this run so a movie playing at
-    several followed theaters is only looked up once."""
+def fetch_theater(theater_id, theater_name, movie_cache, max_days=None):
+    """Fetch all upcoming showtimes for one theater. `movie_cache` is shared
+    across theaters in this run so a movie playing at several followed
+    theaters is only looked up once."""
     movies = {}
     today = date.today()
     days_checked = 0
     ok_days = 0
     consecutive_failures = 0
 
-    for offset in range(MAX_DAYS):
+    for offset in range(max_days or MAX_DAYS):
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         days_checked = offset + 1
@@ -210,8 +212,6 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
 
         for s in showtimes:
             mid = s["movieId"]
-            if mid in skipped:
-                continue
             if not s.get("showDateTimeUtc"):
                 print(f'Warning: showtime {s.get("id")} missing showDateTimeUtc, skipping')
                 continue
@@ -219,9 +219,6 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
             if mid not in movie_cache:
                 movie_api = fetch_movie(mid)
                 time.sleep(0.1)
-                if movie_api.get("availableForAList") is False:
-                    skipped.add(mid)
-                    continue
                 movie_cache[mid] = movie_api
             movie_api = movie_cache[mid]
 
@@ -234,6 +231,9 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
                     "mpaaRating": s.get("mpaaRating", ""),
                     "runTime": s.get("runTime", 0),
                     "releaseYear": release_year,
+                    # Only an explicit False means non-A-List; None (lookup
+                    # failed / field absent) is treated as eligible by the client.
+                    "availableForAList": movie_api.get("availableForAList"),
                     "poster": (s.get("media") or {}).get("posterDynamic", ""),
                     "formats": set(),
                     "languages": set(),
@@ -287,7 +287,7 @@ def fetch_theater(theater_id, theater_name, movie_cache, skipped):
     return movie_list, days_checked
 
 
-def run(theater_overrides=None, dry_run=False, save_local=None):
+def run(theater_overrides=None, dry_run=False, save_local=None, peek=False):
     if theater_overrides:
         theaters = theater_overrides
     else:
@@ -300,7 +300,6 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
     print(f"Fetching {len(theaters)} theater(s): {list(theaters.values())}")
 
     movie_cache = {}
-    skipped = set()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     index = {}
     failed = []
@@ -311,7 +310,7 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
     for theater_id, theater_name in theaters.items():
         print(f"\n{theater_name} ({theater_id})...")
         try:
-            movie_list, days_checked = fetch_theater(theater_id, theater_name, movie_cache, skipped)
+            movie_list, days_checked = fetch_theater(theater_id, theater_name, movie_cache, PEEK_DAYS if peek else None)
         except TheaterFetchError as e:
             print(f"  Error: {e} — skipping upload, existing data left untouched")
             failed.append(theater_name)
@@ -324,7 +323,10 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
             "movies": movie_list,
         }
         payload = json.dumps(output)
+        # Peek files live under peek/ so they never look like a followed
+        # theater's data; they're swept by sync_theaters.py.
         filename = f"theater-{theater_id}.json"
+        storage_name = f"peek/{filename}" if peek else filename
 
         if save_local:
             with open(os.path.join(save_local, filename), "w") as f:
@@ -332,8 +334,9 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
 
         if not dry_run:
             import supabase_client as sb
-            sb.storage_upload(STORAGE_BUCKET, filename, payload)
-            sb.update("theaters", {"amc_id": f"eq.{theater_id}"}, {"last_fetched_at": now})
+            sb.storage_upload(STORAGE_BUCKET, storage_name, payload)
+            if not peek:
+                sb.update("theaters", {"amc_id": f"eq.{theater_id}"}, {"last_fetched_at": now})
 
         index[str(theater_id)] = {
             "name": theater_name,
@@ -346,7 +349,7 @@ def run(theater_overrides=None, dry_run=False, save_local=None):
         with open(os.path.join(save_local, "index.json"), "w") as f:
             f.write(index_payload)
     # Skip the index when any theater failed so it doesn't drop their entries.
-    if not dry_run and not failed:
+    if not dry_run and not failed and not peek:
         import supabase_client as sb
         sb.storage_upload(STORAGE_BUCKET, "index.json", index_payload)
 
@@ -364,7 +367,12 @@ def main():
     ap.add_argument("--theater-ids", help="comma-separated AMC theater ids, bypassing the Supabase follower query")
     ap.add_argument("--dry-run", action="store_true", help="fetch and report, skip Storage upload")
     ap.add_argument("--save-local", metavar="DIR", help="also write theater-{id}.json/index.json to DIR")
+    ap.add_argument("--peek", action="store_true", help="temporary fetch for a non-followed theater: upload to peek/, skip last_fetched_at and index.json (needs --theater-ids)")
     args = ap.parse_args()
+
+    if args.peek and not args.theater_ids:
+        print("Error: --peek requires --theater-ids")
+        return 1
 
     if not API_KEY:
         print("Error: no AMC API key (set AMC_API_KEY or provide amc_api.txt)")
@@ -375,7 +383,7 @@ def main():
         ids = [int(x) for x in args.theater_ids.split(",") if x.strip()]
         overrides = lookup_theater_names(ids)
 
-    return run(theater_overrides=overrides, dry_run=args.dry_run, save_local=args.save_local)
+    return run(theater_overrides=overrides, dry_run=args.dry_run, save_local=args.save_local, peek=args.peek)
 
 
 if __name__ == "__main__":

@@ -88,6 +88,12 @@ the single shape the UI consumes.
   `attributes[].name` via regex `r'^(\w+)\s+(?:Spoken|Language)\b'`.
 - A-List eligibility: `availableForAList` boolean from `/v2/movies/{id}` (movie level, not
   showtime level).
+  Non-A-List movies are **kept** in `theater-{id}.json` with `availableForAList: false`; the web
+  filters client-side via `filters.aList` (`only` default / `all` / `non`) and `MovieCard` shows a
+  "Not A-List" badge. A missing/null flag counts as A-List.
+- **Peek**: `TheaterPicker` → "Peek" runs `trigger-fetch` with `peek: true` →
+  `fetch_showtimes.py --peek` writes `showtimes/peek/theater-{id}.json` (no `last_fetched_at`, no
+  `index.json`); `App.jsx` polls `loadPeekData`. In-memory only; `sync_theaters.py` sweeps peek files >7 days; peeks cover 7 days, and a saved peek older than 6h is shown immediately while refetching in the background.
 - Fathom events: detected via the `EVENT` attribute code on the showtime.
 
 ### Watchlist / seat sniper

@@ -104,6 +104,27 @@ export async function showLocalTestNotification() {
   })
 }
 
+const RECENT_PEEKS_KEY = 'recentPeeks'
+const MAX_RECENT_PEEKS = 5
+
+/** Theaters recently peeked at on this device, newest first. */
+export function getRecentPeeks() {
+  try {
+    const list = JSON.parse(lsGet(RECENT_PEEKS_KEY) || '[]')
+    return Array.isArray(list) ? list : []
+  } catch { return [] }
+}
+
+export function addRecentPeek(theater) {
+  const entry = { amc_id: theater.amc_id, name: theater.name, city: theater.city, state: theater.state }
+  const next = [entry, ...getRecentPeeks().filter((t) => t.amc_id !== theater.amc_id)].slice(0, MAX_RECENT_PEEKS)
+  lsSet(RECENT_PEEKS_KEY, JSON.stringify(next))
+}
+
+export function removeRecentPeek(amcId) {
+  lsSet(RECENT_PEEKS_KEY, JSON.stringify(getRecentPeeks().filter((t) => t.amc_id !== amcId)))
+}
+
 // localStorage helpers that never throw (private mode, blocked storage).
 export function lsGet(key) {
   try { return localStorage.getItem(key) } catch { return null }

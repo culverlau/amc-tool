@@ -78,6 +78,33 @@ function Dropdown({ label, options, selected, onChange }) {
 }
 
 
+const A_LIST_OPTIONS = [
+  { value: 'only', label: 'A-List' },
+  { value: 'all', label: 'All' },
+  { value: 'non', label: 'Non A-List' },
+]
+
+function AListToggle({ value, onChange }) {
+  return (
+    <div role="group" aria-label="A-List filter" className="flex rounded-lg overflow-hidden bg-gray-800">
+      {A_LIST_OPTIONS.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          aria-pressed={value === o.value}
+          className={`px-3 py-2 text-sm font-medium transition-colors ${
+            value === o.value
+              ? o.value === 'only' ? 'bg-red-700 text-white' : 'bg-amber-400 text-amber-950'
+              : 'text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function FilterBar({ theaters, formats, languages, filters, onChange, hiddenCount = 0, staleHiddenCount = 0, onClearStaleHidden }) {
   const theaterOptions = Object.entries(theaters).map(([id, name]) => ({
     value: id,
@@ -118,6 +145,8 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           />
         </div>
 
+        <AListToggle value={filters.aList} onChange={v => onChange({ ...filters, aList: v })} />
+
         {(hiddenCount > 0 || staleHiddenCount > 0) && (
           <button
             onClick={() => onChange({ ...filters, showHidden: !filters.showHidden })}
@@ -141,9 +170,9 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           </button>
         )}
 
-        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search || filters.showHidden) && (
+        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search || filters.showHidden || filters.aList !== 'only') && (
           <button
-            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', showHidden: false })}
+            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only' })}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
           >
             Clear all

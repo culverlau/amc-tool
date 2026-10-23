@@ -76,6 +76,24 @@ def is_usable(t):
     return not t.get("isClosed") and t.get("ticketable") != "Never"
 
 
+def sweep_peek_files(max_age_hours=24 * 7):
+    """Delete temporary peek/ showtime files (see fetch_showtimes.py --peek)
+    older than `max_age_hours`. Best-effort: failures only log."""
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        stale = []
+        for obj in sb.storage_list("showtimes", "peek"):
+            ts = obj.get("updated_at") or obj.get("created_at")
+            if ts and datetime.fromisoformat(ts.replace("Z", "+00:00")) < cutoff:
+                stale.append(f"peek/{obj['name']}")
+        sb.storage_delete("showtimes", stale)
+        print(f"Swept {len(stale)} stale peek file(s)")
+    except Exception as e:
+        print(f"warning: peek sweep failed: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="fetch and report, write nothing")
@@ -115,6 +133,8 @@ def main():
         chunk = rows[i : i + 500]
         sb.upsert("theaters", chunk, on_conflict="amc_id")
         print(f"  {i + len(chunk)}/{len(rows)}")
+
+    sweep_peek_files()
 
     print("Done.")
     return 0

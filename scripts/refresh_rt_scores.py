@@ -74,8 +74,6 @@ def load_movies_from_amc_api(theaters):
                 seen.add(mid)
                 try:
                     movie_api = fetch_movie(mid)
-                    if movie_api.get("availableForAList") is False:
-                        continue
                     release_year = (movie_api.get("releaseDateUtc") or "")[:4] or None
                 except Exception as e:
                     print(f"  ERROR fetching movie {mid} ({name}): {e}")

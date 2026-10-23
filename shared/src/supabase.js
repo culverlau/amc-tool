@@ -24,6 +24,11 @@ export function createSupabaseClient({ url, anonKey, storage, detectSessionInUrl
   })
 }
 
+/** Public Storage URL for a temporary "peek" at a theater the user doesn't follow. */
+export function peekDataUrl(supabaseUrl, amcId) {
+  return `${supabaseUrl}/storage/v1/object/public/showtimes/peek/theater-${amcId}.json`
+}
+
 /** Public Storage URL for one theater's showtime file. */
 export function theaterDataUrl(supabaseUrl, amcId) {
   return `${supabaseUrl}/storage/v1/object/public/showtimes/theater-${amcId}.json`

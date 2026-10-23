@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { searchTheaters, followTheater, unfollowTheater, triggerShowtimeFetch } from '@amc/shared'
 import { supabase } from '../supabase'
+import { getRecentPeeks } from '../lib/pwa'
 
-export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
+export default function TheaterPicker({ followed, onFollowedChange, onPeek, onClose }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -26,6 +27,9 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
   }, [query])
 
   const followedIds = new Set(followed.map((t) => t.amc_id))
+  // Recents are per-device; skip any theater that has since been followed
+  const [recentPeeks] = useState(() => getRecentPeeks())
+  const shownRecents = recentPeeks.filter((t) => !followedIds.has(t.amc_id))
 
   async function toggle(theater) {
     setPending(theater.amc_id)
@@ -85,6 +89,24 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
 
       <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
         <div className="max-w-2xl mx-auto w-full p-4 space-y-1.5">
+          {!query && shownRecents.length > 0 && (
+            <div className="pb-3 space-y-1.5">
+              <p className="text-xs uppercase tracking-wider text-gray-500 px-1">Recent peeks</p>
+              {shownRecents.map((t) => (
+                <button
+                  key={t.amc_id}
+                  onClick={() => onPeek(t)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left bg-blue-950/30 border border-blue-900/50 hover:border-blue-700 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{t.name}</p>
+                    <p className="text-gray-500 text-xs">{[t.city, t.state].filter(Boolean).join(', ')}</p>
+                  </div>
+                  <span className="flex-shrink-0 text-xs font-medium text-blue-300">Peek</span>
+                </button>
+              ))}
+            </div>
+          )}
           {loading && results.length === 0 && (
             <p className="text-center text-gray-600 text-sm py-8">Searching...</p>
           )}
@@ -115,6 +137,17 @@ export default function TheaterPicker({ followed, onFollowedChange, onClose }) {
                     {isFollowed ? 'Following' : 'Follow'}
                   </span>
                 </button>
+                {!isFollowed && (
+                  <div className="px-4">
+                    <button
+                      onClick={() => onPeek(t)}
+                      title="View showtimes temporarily without following"
+                      className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                    >
+                      Peek at showtimes (don't follow)
+                    </button>
+                  </div>
+                )}
                 {isFollowed && neverFetched && (
                   <div className="px-4 flex items-center gap-2 text-xs">
                     {fetching === t.amc_id ? (

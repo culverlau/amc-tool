@@ -1,5 +1,5 @@
-export { createSupabaseClient, theaterDataUrl } from './supabase.js'
-export { loadShowtimeData, mergeTheaterData } from './data.js'
+export { createSupabaseClient, theaterDataUrl, peekDataUrl } from './supabase.js'
+export { loadShowtimeData, loadPeekData, mergeTheaterData } from './data.js'
 export {
   parseSeat,
   seatInZone,

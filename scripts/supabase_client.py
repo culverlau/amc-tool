@@ -158,3 +158,30 @@ def storage_download(bucket, path):
     )
     _check(r, f"storage download {bucket}/{path}")
     return r.json()
+
+
+def storage_list(bucket, prefix, limit=1000):
+    """List objects directly under `prefix` (each has `name`, `updated_at`)."""
+    _require_config()
+    r = requests.post(
+        f"{SUPABASE_URL}/storage/v1/object/list/{bucket}",
+        headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+        json={"prefix": prefix, "limit": limit},
+        timeout=TIMEOUT,
+    )
+    _check(r, f"storage list {bucket}/{prefix}")
+    return r.json()
+
+
+def storage_delete(bucket, paths):
+    """Delete objects by full path."""
+    if not paths:
+        return
+    _require_config()
+    r = requests.delete(
+        f"{SUPABASE_URL}/storage/v1/object/{bucket}",
+        headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+        json={"prefixes": list(paths)},
+        timeout=TIMEOUT,
+    )
+    _check(r, f"storage delete {bucket}")

@@ -115,8 +115,8 @@ export async function unfollowTheater(sb, amcId) {
  * usually done within a minute or two) instead of waiting for the 6-hour
  * cron. Fire-and-forget from the caller's perspective — it dispatches the
  * workflow and returns before the fetch itself finishes. */
-export async function triggerShowtimeFetch(sb, amcId) {
-  const { error } = await sb.functions.invoke('trigger-fetch', { body: { amc_id: amcId } })
+export async function triggerShowtimeFetch(sb, amcId, { peek = false } = {}) {
+  const { error } = await sb.functions.invoke('trigger-fetch', { body: { amc_id: amcId, peek } })
   if (error) throw error
 }
 

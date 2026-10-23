@@ -1,4 +1,4 @@
-import { theaterDataUrl } from './supabase.js'
+import { theaterDataUrl, peekDataUrl } from './supabase.js'
 
 /**
  * Showtime data is one JSON file per theater in a public Storage bucket, so a
@@ -26,6 +26,23 @@ export async function loadShowtimeData(supabaseUrl, amcIds) {
   const loaded = results.filter((r) => r.json).map((r) => r.json)
 
   return { data: mergeTheaterData(loaded), failed }
+}
+
+/**
+ * Loads one theater's temporary peek file. Returns the merged data, or null if
+ * the file isn't there yet (or predates `newerThan`, an ISO timestamp — so a
+ * stale file from an earlier peek isn't mistaken for the fetch in flight).
+ */
+export async function loadPeekData(supabaseUrl, amcId, newerThan = null) {
+  try {
+    const res = await fetch(peekDataUrl(supabaseUrl, amcId), { cache: 'no-cache' })
+    if (!res.ok) return null
+    const json = await res.json()
+    if (newerThan && (!json.lastUpdated || json.lastUpdated < newerThan)) return null
+    return mergeTheaterData([json])
+  } catch {
+    return null
+  }
 }
 
 export function mergeTheaterData(files) {

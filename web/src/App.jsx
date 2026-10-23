@@ -14,6 +14,7 @@ import { SignInScreen, WaitlistScreen, LoadingScreen } from './components/AuthGa
 import { useAuth } from './useAuth'
 import { supabase, SUPABASE_URL } from './supabase'
 import { ADMIN_EMAIL } from './config'
+import { addRecentPeek, removeRecentPeek } from './lib/pwa'
 import {
   getFollowedTheaters,
   getWatchlist,
@@ -21,6 +22,8 @@ import {
   removeFromWatchlist,
   getMovieScores,
   loadShowtimeData,
+  loadPeekData,
+  triggerShowtimeFetch,
   updateSeatZoneDefaults,
   getHiddenMovies,
   hideMovie,
@@ -28,6 +31,7 @@ import {
   unhideMovies,
   getSeatLayouts,
   getWishlist,
+  followTheater,
   addToWishlist,
   removeFromWishlist,
 } from '@amc/shared'
@@ -40,6 +44,10 @@ function Spinner() {
     </svg>
   )
 }
+
+// A saved peek older than this is shown right away but refetched in the background,
+// matching the 6h cron for followed theaters. sync_theaters.py sweeps files after 7 days.
+const PEEK_REFRESH_MS = 6 * 60 * 60 * 1000
 
 function hashToView(hash) {
   if (hash === '#watchlist') return 'watchlist'
@@ -157,6 +165,11 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
   // Close the wishlist and scroll to that movie's card in the main list
   function jumpToMovie(movieId) {
     closeOverlay()
+    // A non-A-List movie has no card while the toggle is on A-List only
+    const target = data?.movies.find((m) => String(m.id) === String(movieId))
+    if (target?.availableForAList === false && filters.aList === 'only') {
+      setFilters((f) => ({ ...f, aList: 'all' }))
+    }
     requestAnimationFrame(() => {
       document.getElementById(`movie-${movieId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
@@ -264,20 +277,103 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     })
   }
 
-  const [filters, setFilters] = useState({ theaters: [], formats: [], languages: [], search: '', showHidden: false })
+  const defaultFilters = { theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only' }
+  const [filters, setFilters] = useState(defaultFilters)
+
+  // Temporary look at a theater the user doesn't follow. In-memory only: it's
+  // never written to user_theaters and clears on refresh.
+  // { theater, since, data, status: 'loading' | 'ok' | 'error' | 'timeout', refreshing }
+  // `refreshing`: stale saved data is on screen while a newer fetch is in flight.
+  const [peek, setPeek] = useState(null)
+  const peekAmcId = peek?.theater.amc_id
+
+  async function startPeek(theater) {
+    addRecentPeek(theater)
+    closeOverlay()
+    setFilters(defaultFilters)
+    // Any saved peek (e.g. checking back during a trip) is shown immediately
+    const saved = await loadPeekData(SUPABASE_URL, theater.amc_id)
+    const fresh = saved?.lastUpdated && Date.now() - new Date(saved.lastUpdated).getTime() < PEEK_REFRESH_MS
+    if (fresh) {
+      setPeek({ theater, data: saved, status: 'ok', refreshing: false })
+      return
+    }
+    // Backdated a minute so clock skew vs. the GitHub runner can't hide the new file
+    const since = new Date(Date.now() - 60 * 1000).toISOString()
+    setPeek(saved
+      ? { theater, since, data: saved, status: 'ok', refreshing: true }
+      : { theater, since, data: null, status: 'loading', refreshing: false })
+    triggerShowtimeFetch(supabase, theater.amc_id, { peek: true }).catch((e) => {
+      console.error('[peek] fetch trigger failed', e)
+      // With stale data on screen a failed refresh just keeps showing it
+      setPeek((p) => (p?.theater.amc_id === theater.amc_id
+        ? (p.data ? { ...p, refreshing: false } : { ...p, status: 'error' })
+        : p))
+    })
+  }
+
+  function closePeek() {
+    setPeek(null)
+    setFilters(defaultFilters)
+  }
+
+  async function followPeeked() {
+    const theater = peek.theater
+    await followTheater(supabase, theater.amc_id)
+    removeRecentPeek(theater.amc_id)
+    setFollowedTheaters((prev) => [...(prev || []), theater])
+    triggerShowtimeFetch(supabase, theater.amc_id).catch((e) => console.error('[theaters] fetch trigger failed', e))
+    closePeek()
+  }
+
+  // Poll Storage until the dispatched peek fetch lands (~1-2 min), then give up
+  const peekPolling = peek?.status === 'loading' || peek?.refreshing === true
+  useEffect(() => {
+    if (!peekPolling) return
+    const { since } = peek
+    let cancelled = false
+    let tries = 0
+    const poll = async () => {
+      const loaded = await loadPeekData(SUPABASE_URL, peekAmcId, since)
+      if (cancelled) return
+      if (loaded) {
+        setPeek((p) => (p?.theater.amc_id === peekAmcId ? { ...p, data: loaded, status: 'ok', refreshing: false } : p))
+      } else if (++tries >= 40) {
+        setPeek((p) => (p?.theater.amc_id === peekAmcId
+          ? (p.data ? { ...p, refreshing: false } : { ...p, status: 'timeout' })
+          : p))
+      }
+    }
+    poll()
+    const timer = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [peekPolling, peekAmcId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // What the list renders: the peeked theater when peeking, else followed theaters
+  const peeking = peek !== null
+  const viewData = peek ? peek.data : data
+  const viewStatus = peek ? (peek.status === 'ok' ? 'ok' : peek.status) : dataStatus
+
+  // Only an explicit false is non-A-List; missing flag (older files) counts as A-List
+  const aListMovies = useMemo(() => {
+    if (!viewData) return []
+    if (filters.aList === 'all') return viewData.movies
+    const wantNon = filters.aList === 'non'
+    return viewData.movies.filter((m) => (m.availableForAList === false) === wantNon)
+  }, [viewData, filters.aList])
 
   const allFormats = useMemo(
-    () => (data ? [...new Set(data.movies.flatMap((m) => m.formats))].sort() : []),
-    [data]
+    () => [...new Set(aListMovies.flatMap((m) => m.formats))].sort(),
+    [aListMovies]
   )
   const allLanguages = useMemo(
-    () => (data ? [...new Set(data.movies.flatMap((m) => m.languages))].sort() : []),
-    [data]
+    () => [...new Set(aListMovies.flatMap((m) => m.languages))].sort(),
+    [aListMovies]
   )
 
   const filteredMovies = useMemo(() => {
-    if (!data) return []
-    const matching = data.movies.filter((movie) => {
+    if (!viewData) return []
+    const matching = aListMovies.filter((movie) => {
       if (!filters.showHidden && hiddenMovies.has(String(movie.id))) return false
       if (filters.search) {
         const q = filters.search.toLowerCase()
@@ -291,7 +387,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     })
     // Wishlisted movies pinned first; Array.sort is stable, so order within each group is kept
     return matching.sort((a, b) => pinnedIds.has(String(b.id)) - pinnedIds.has(String(a.id)))
-  }, [data, filters, hiddenMovies, pinnedIds])
+  }, [viewData, aListMovies, filters, hiddenMovies, pinnedIds])
 
   // Layout effect so the re-sort lands before paint (and before jumpToMovie's
   // scroll) when returning from the Wishlist panel. wishlistSet intentionally
@@ -322,22 +418,24 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-white tracking-tight">NYC Showtimes</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {followedTheaters === null
+              {peeking
+                ? `Peeking: ${peek.theater.name.replace(/^AMC /, '')}`
+                : followedTheaters === null
                 ? ' '
                 : hasTheaters
                   ? followedTheaters.map((t) => t.name.replace(/^AMC /, '')).join(' · ')
                   : 'Follow a theater to get started'}
             </p>
-            {data?.lastUpdated && (
+            {viewData?.lastUpdated && (
               <p className="sm:hidden text-xs text-gray-600 mt-0.5">
-                Updated {formatUpdated(data.lastUpdated)}
+                Updated {formatUpdated(viewData.lastUpdated)}
               </p>
             )}
           </div>
           <div className="flex flex-col items-end gap-2 flex-shrink-0">
-            {data?.lastUpdated && (
+            {viewData?.lastUpdated && (
               <p className="hidden sm:block text-xs text-gray-600">
-                Updated {formatUpdated(data.lastUpdated)}
+                Updated {formatUpdated(viewData.lastUpdated)}
               </p>
             )}
             <div className="flex items-center gap-1">
@@ -424,9 +522,32 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
       </header>
 
       {/* Filter bar */}
-      {dataStatus === 'ok' && data && hasTheaters && (
+      {peeking && (
+        <div className="bg-blue-950/60 border-b border-blue-900 px-4 py-2.5">
+          <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="text-blue-200 flex-1 min-w-[200px]">
+              Peeking at <strong>{peek.theater.name}</strong> — not in your theaters
+              {peek.refreshing && <span className="text-blue-300/70"> · Refreshing showtimes…</span>}
+            </span>
+            <button
+              onClick={followPeeked}
+              className="text-white bg-red-700 hover:bg-red-600 transition-colors font-medium px-3 py-1.5 rounded-lg"
+            >
+              Follow
+            </button>
+            <button
+              onClick={closePeek}
+              className="text-blue-200 hover:text-white bg-blue-900/60 hover:bg-blue-900 transition-colors px-3 py-1.5 rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {viewStatus === 'ok' && viewData && (hasTheaters || peeking) && (
         <FilterBar
-          theaters={data.theaters}
+          theaters={viewData.theaters}
           formats={allFormats}
           languages={allLanguages}
           filters={filters}
@@ -434,7 +555,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           hiddenCount={hiddenShowingCount}
           // A not-yet-fetched theater's movies would look "not showing", so
           // don't offer to clear until every followed theater has loaded.
-          staleHiddenCount={failedTheaters.length === 0 ? staleHiddenIds.length : 0}
+          staleHiddenCount={!peeking && failedTheaters.length === 0 ? staleHiddenIds.length : 0}
           onClearStaleHidden={handleClearStaleHidden}
         />
       )}
@@ -449,7 +570,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           </div>
         )}
 
-        {followedTheaters !== null && !hasTheaters && (
+        {!peeking && followedTheaters !== null && !hasTheaters && (
           <div className="text-center py-24">
             <p className="text-gray-400 text-lg">No theaters followed yet.</p>
             <button
@@ -461,33 +582,55 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           </div>
         )}
 
-        {hasTheaters && dataStatus === 'loading' && (
+        {peeking && viewStatus === 'loading' && (
+          <div className="flex flex-col items-center justify-center py-24 text-gray-500 text-center">
+            <div className="flex items-center"><Spinner />Fetching showtimes for {peek.theater.name}...</div>
+            <p className="text-gray-600 text-sm mt-2">This usually takes a minute or two.</p>
+          </div>
+        )}
+
+        {peeking && (viewStatus === 'error' || viewStatus === 'timeout') && (
+          <div className="text-center py-24">
+            <p className="text-gray-400 text-lg">Couldn't load showtimes for this theater.</p>
+            <p className="text-gray-600 text-sm mt-2">
+              {viewStatus === 'timeout' ? 'The fetch is taking longer than expected.' : 'The fetch request failed.'} Try again in a bit.
+            </p>
+            <button
+              onClick={() => startPeek(peek.theater)}
+              className="mt-4 text-sm text-white bg-gray-800 hover:bg-gray-700 transition-colors px-4 py-2 rounded-lg"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!peeking && hasTheaters && dataStatus === 'loading' && (
           <div className="flex items-center justify-center py-24 text-gray-500">
             <Spinner />
             Loading screenings...
           </div>
         )}
 
-        {hasTheaters && dataStatus === 'error' && (
+        {!peeking && hasTheaters && dataStatus === 'error' && (
           <div className="text-center py-24">
             <p className="text-gray-400 text-lg">Showtimes not loaded yet.</p>
             <p className="text-gray-600 text-sm mt-2">Try reloading in a few minutes.</p>
           </div>
         )}
 
-        {hasTheaters && dataStatus === 'ok' && failedTheaters.length > 0 && (
+        {!peeking && hasTheaters && dataStatus === 'ok' && failedTheaters.length > 0 && (
           <p className="text-center text-xs text-gray-600 mb-4">
             Still fetching {failedTheaters.length} newly-followed theater — check back within a few hours.
           </p>
         )}
 
-        {hasTheaters && dataStatus === 'ok' && filteredMovies.length === 0 && (
+        {(hasTheaters || peeking) && viewStatus === 'ok' && filteredMovies.length === 0 && (
           <div className="text-center py-24 text-gray-500">
             No movies match your filters.
           </div>
         )}
 
-        {hasTheaters && dataStatus === 'ok' && (
+        {(hasTheaters || peeking) && viewStatus === 'ok' && (
           <div className="space-y-3">
             {filteredMovies.map((movie) => {
               const live = movieScores?.get(String(movie.id))
@@ -501,7 +644,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
                   filters={filters}
                   watchlist={watchlistSet}
                   onToggleStar={handleToggleStar}
-                  theaterNames={data.theaters}
+                  theaterNames={viewData.theaters}
                   hidden={hiddenMovies.has(String(movie.id))}
                   onToggleHide={handleToggleHide}
                   wishlisted={wishlistSet.has(String(movie.id))}
@@ -513,9 +656,9 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           </div>
         )}
 
-        {hasTheaters && dataStatus === 'ok' && (
+        {(hasTheaters || peeking) && viewStatus === 'ok' && (
           <p className="text-center text-xs text-gray-700 mt-8 pb-4">
-            {data.movies.length} movies
+            {aListMovies.length} movies
           </p>
         )}
       </main>
@@ -553,6 +696,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
         <TheaterPicker
           followed={followedTheaters || []}
           onFollowedChange={setFollowedTheaters}
+          onPeek={startPeek}
           onClose={closeOverlay}
         />
       )}

@@ -172,8 +172,11 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
   const activeDate = selection?.type === 'date' ? selection.key : null
   const activeTheater = selection?.type === 'theater' ? selection.key : null
 
+  // Only an explicit false: absent/null (older data) counts as A-List eligible
+  const nonAList = movie.availableForAList === false
+
   return (
-    <article className={`bg-gray-900 rounded-xl overflow-hidden border transition-colors ${wishlisted ? 'border-pink-500/40 hover:border-pink-500/60' : 'border-gray-800/60 hover:border-gray-700'} ${hidden ? 'opacity-60' : ''}`}>
+    <article className={`bg-gray-900 rounded-xl overflow-hidden border transition-colors ${wishlisted ? 'border-pink-500/40 hover:border-pink-500/60' : 'border-gray-800/60 hover:border-gray-700'} ${hidden ? 'opacity-60' : ''} ${nonAList ? 'border-l-4 border-l-amber-500' : ''}`}>
       <div className="flex">
         {/* Poster */}
         <div className="flex-shrink-0 w-20 sm:w-28 bg-gray-800 self-stretch">
@@ -197,6 +200,14 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
           <div className="flex items-start justify-between gap-2">
             <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
               {movie.name}
+              {nonAList && (
+                <span
+                  title="Not covered by AMC A-List — costs a regular ticket"
+                  className="ml-2 align-middle text-[10px] font-bold uppercase tracking-wider text-amber-950 bg-amber-400 rounded px-1.5 py-0.5"
+                >
+                  Not A-List
+                </span>
+              )}
               {hidden && (
                 <span className="ml-2 align-middle text-[10px] font-medium uppercase tracking-wider text-gray-500 border border-gray-700 rounded px-1.5 py-0.5">
                   Hidden

@@ -12,6 +12,10 @@ on:
       theater_ids:
         description: 'Comma-separated AMC theater ids to fetch (default: all followed theaters)'
         required: false
+      peek:
+        description: 'Temporary fetch for a non-followed theater (writes peek/ in Storage; requires theater_ids)'
+        type: boolean
+        default: false
 
 jobs:
   fetch:
@@ -32,4 +36,4 @@ jobs:
           AMC_API_KEY: ${{ secrets.AMC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/fetch_showtimes.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }}
+        run: python scripts/fetch_showtimes.py ${{ inputs.theater_ids && format('--theater-ids {0}', inputs.theater_ids) || '' }} ${{ inputs.peek && '--peek' || '' }}
