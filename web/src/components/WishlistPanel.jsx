@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { posterUrl } from '@amc/shared'
 
 function formatStartsAt(iso) {
   const d = new Date(iso)
@@ -12,7 +13,7 @@ function Poster({ src, name }) {
   return (
     <div className="w-12 h-[72px] flex-shrink-0 bg-gray-800 rounded-lg overflow-hidden">
       {src && !error && (
-        <img src={src} alt={name} className="w-full h-full object-cover" onError={() => setError(true)} />
+        <img src={posterUrl(src, 150)} alt={name} className="w-full h-full object-cover" onError={() => setError(true)} />
       )}
     </div>
   )

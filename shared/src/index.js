@@ -1,4 +1,5 @@
 export { createSupabaseClient, theaterDataUrl, peekDataUrl } from './supabase.js'
+export { posterUrl } from './poster.js'
 export { loadShowtimeData, loadPeekData, mergeTheaterData } from './data.js'
 export {
   parseSeat,

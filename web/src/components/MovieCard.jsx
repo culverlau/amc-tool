@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { posterUrl } from '@amc/shared'
 
 function shortTheaterName(name) {
   return (name || '').replace(/^AMC /, '')
@@ -182,7 +183,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
         <div className="flex-shrink-0 w-20 sm:w-28 bg-gray-800 self-stretch">
           {movie.poster && !imgError ? (
             <img
-              src={movie.poster}
+              src={posterUrl(movie.poster)}
               alt={movie.name}
               onError={() => setImgError(true)}
               className="w-full h-full object-cover"
