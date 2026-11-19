@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import DayPicker from './DayPicker'
 
 // options: array of strings OR {value, label} objects
 function getVal(opt) { return typeof opt === 'string' ? opt : opt.value }
@@ -101,36 +102,6 @@ function AListToggle({ value, onChange }) {
           {o.label}
         </button>
       ))}
-    </div>
-  )
-}
-
-// Native date input: the OS calendar on phones, the browser's on desktop.
-// min/max keep the pick inside the range that actually has showtimes.
-function DayPicker({ dates, value, onChange }) {
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        type="date"
-        aria-label="Day"
-        value={value}
-        min={dates[0]}
-        max={dates[dates.length - 1]}
-        onChange={e => onChange(e.target.value)}
-        style={{ colorScheme: 'dark' }}
-        className={`h-[38px] px-3 rounded-lg text-sm font-medium focus:outline-none ${
-          value ? 'bg-red-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-        }`}
-      />
-      {value && (
-        <button
-          onClick={() => onChange('')}
-          aria-label="Clear day"
-          className="text-gray-500 hover:text-gray-300 px-1.5 text-lg leading-none"
-        >
-          ×
-        </button>
-      )}
     </div>
   )
 }
