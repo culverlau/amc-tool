@@ -74,6 +74,7 @@ export default function MovieCard({ movie, filters, watchlist, onToggleStar, the
   for (const s of movie.screenings) {
     if (filters.theaters.length > 0 && !filters.theaters.includes(String(s.theaterId))) continue
     if (filters.formats.length > 0 && !filters.formats.includes(s.format)) continue
+    if (filters.date && s.date !== filters.date) continue
     if (!byDate[s.date]) byDate[s.date] = []
     byDate[s.date].push(s)
   }

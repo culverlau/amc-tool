@@ -105,7 +105,37 @@ function AListToggle({ value, onChange }) {
   )
 }
 
-export default function FilterBar({ theaters, formats, languages, filters, onChange, hiddenCount = 0, staleHiddenCount = 0, onClearStaleHidden }) {
+// Native date input: the OS calendar on phones, the browser's on desktop.
+// min/max keep the pick inside the range that actually has showtimes.
+function DayPicker({ dates, value, onChange }) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="date"
+        aria-label="Day"
+        value={value}
+        min={dates[0]}
+        max={dates[dates.length - 1]}
+        onChange={e => onChange(e.target.value)}
+        style={{ colorScheme: 'dark' }}
+        className={`h-[38px] px-3 rounded-lg text-sm font-medium focus:outline-none ${
+          value ? 'bg-red-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+        }`}
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          aria-label="Clear day"
+          className="text-gray-500 hover:text-gray-300 px-1.5 text-lg leading-none"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  )
+}
+
+export default function FilterBar({ theaters, formats, languages, dates = [], filters, onChange, hiddenCount = 0, staleHiddenCount = 0, onClearStaleHidden }) {
   const theaterOptions = Object.entries(theaters).map(([id, name]) => ({
     value: id,
     label: name.replace(/^AMC /, ''),
@@ -127,6 +157,8 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           selected={filters.formats}
           onChange={v => onChange({ ...filters, formats: v })}
         />
+
+        <DayPicker dates={dates} value={filters.date || ''} onChange={v => onChange({ ...filters, date: v })} />
 
         <Dropdown
           label="Language"
@@ -170,9 +202,9 @@ export default function FilterBar({ theaters, formats, languages, filters, onCha
           </button>
         )}
 
-        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search || filters.showHidden || filters.aList !== 'only') && (
+        {(filters.theaters.length > 0 || filters.formats.length > 0 || filters.languages.length > 0 || filters.search || filters.showHidden || filters.aList !== 'only' || filters.date) && (
           <button
-            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only' })}
+            onClick={() => onChange({ theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only', date: '' })}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2"
           >
             Clear all

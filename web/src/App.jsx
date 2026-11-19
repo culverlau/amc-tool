@@ -277,7 +277,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
     })
   }
 
-  const defaultFilters = { theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only' }
+  const defaultFilters = { theaters: [], formats: [], languages: [], search: '', showHidden: false, aList: 'only', date: '' }
   const [filters, setFilters] = useState(defaultFilters)
 
   // Temporary look at a theater the user doesn't follow. In-memory only: it's
@@ -364,6 +364,10 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
 
   const allFormats = useMemo(
     () => [...new Set(aListMovies.flatMap((m) => m.formats))].sort(),
+    [aListMovies]
+  )
+  const allDates = useMemo(
+    () => [...new Set(aListMovies.flatMap((m) => m.screenings.map((s) => s.date)))].sort(),
     [aListMovies]
   )
   const allLanguages = useMemo(
@@ -550,6 +554,7 @@ function MainApp({ initialProfile, onSignOut, onRestartOnboarding }) {
           theaters={viewData.theaters}
           formats={allFormats}
           languages={allLanguages}
+          dates={allDates}
           filters={filters}
           onChange={setFilters}
           hiddenCount={hiddenShowingCount}
