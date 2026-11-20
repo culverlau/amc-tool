@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 // Dates are 'YYYY-MM-DD' strings in theater-local time, so everything here
 // works on those strings / local Date parts — never UTC (toISOString would shift days).
@@ -28,6 +29,8 @@ function Chevron({ dir }) {
 export default function DayPicker({ dates, value, onChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  const sheetRef = useRef(null)
+  const [anchor, setAnchor] = useState(null) // desktop popover position
   const min = dates[0]
   const max = dates[dates.length - 1]
   const today = toStr(new Date())
@@ -37,7 +40,11 @@ export default function DayPicker({ dates, value, onChange }) {
   useEffect(() => {
     if (!open) return
     setMonth(parse(value || (min && min > today ? min : today)))
-    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    // The sheet is portaled to <body>, so it's outside ref — count both as "inside"
+    function handle(e) {
+      if (ref.current?.contains(e.target) || sheetRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', handle)
     document.addEventListener('touchstart', handle)
     return () => {
@@ -68,6 +75,16 @@ export default function DayPicker({ dates, value, onChange }) {
     { label: 'Saturday', date: saturday },
   ].filter((s) => inRange(s.date))
 
+  function toggle() {
+    if (!open && ref.current && window.innerWidth >= 640) {
+      const r = ref.current.getBoundingClientRect()
+      setAnchor({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 336) })
+    } else if (!open) {
+      setAnchor(null)
+    }
+    setOpen((o) => !o)
+  }
+
   function pick(s) { onChange(s); setOpen(false) }
 
   const label = value
@@ -77,7 +94,7 @@ export default function DayPicker({ dates, value, onChange }) {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-haspopup="dialog"
         aria-expanded={open}
         className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -88,14 +105,16 @@ export default function DayPicker({ dates, value, onChange }) {
         {label}
       </button>
 
-      {open && (
+      {open && createPortal(
         <>
-          <div className="fixed inset-0 bg-black/60 z-40 sm:hidden" />
+          <div className="fixed inset-0 bg-black/60 z-40 sm:hidden" onClick={() => setOpen(false)} />
           <div
+            ref={sheetRef}
+            style={anchor ? { top: anchor.top, left: anchor.left } : undefined}
             role="dialog"
             aria-label="Choose a day"
             className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-gray-900 border-t border-gray-700 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]
-                       sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-1.5 sm:w-80 sm:rounded-xl sm:border sm:shadow-2xl"
+                       sm:inset-x-auto sm:bottom-auto sm:w-80 sm:rounded-xl sm:border sm:shadow-2xl"
           >
             {shortcuts.length > 0 && (
               <div className="flex gap-2 mb-3">
@@ -174,7 +193,8 @@ export default function DayPicker({ dates, value, onChange }) {
               </button>
             )}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )
